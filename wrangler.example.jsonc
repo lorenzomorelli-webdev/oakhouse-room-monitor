@@ -8,6 +8,8 @@
 		"TARGET_URL": "https://www.oakhouse.jp/eng/house/1142",
 		"ROOMS_URL": "https://www.oakhouse.jp/eng/house/1142#room",
 		"PROPERTY_NAME": "GRAN KOBE",
+		"AYN_TARGET_URL": "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page",
+		"AYN_DASHBOARD_URL": "https://www.ayntec.com/pages/shipment-dashboard",
 		"FAILURE_THRESHOLD": "3",
 		"FETCH_TIMEOUT_MS": "15000"
 	},

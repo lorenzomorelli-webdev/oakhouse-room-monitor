@@ -1,42 +1,52 @@
-# Oakhouse Room Monitor
+# Oakhouse + AYN Telegram Monitor
 
-An unofficial Cloudflare Worker that watches the public room table of an
-Oakhouse property and sends Telegram alerts when availability changes.
+An unofficial Cloudflare Worker that watches two public pages and sends useful
+change alerts to one private Telegram chat:
 
-The included configuration targets
-[GRAN KOBE](https://www.oakhouse.jp/eng/house/1142#room), but the property name
-and URLs can be changed in the local Wrangler configuration. The parser is
-specific to Oakhouse's current server-rendered room markup.
+- [GRAN KOBE room availability](https://www.oakhouse.jp/eng/house/1142#room),
+  checked every minute;
+- [AYN Shipping Dashboard](https://www.ayntec.com/pages/shipment-dashboard),
+  checked every 30 minutes.
 
-> This project is not affiliated with, endorsed by, or operated by Oakhouse.
-> It monitors public information only and does not automate login, booking, or
-> reservation flows.
+The Worker runs entirely on Cloudflare after deployment. No computer or
+always-on server is required.
+
+> This project is not affiliated with, endorsed by, or operated by Oakhouse or
+> AYN. It monitors public information only and does not automate login,
+> reservations, purchases, or other actions.
 
 ## Features
 
-- checks the room table every minute with a Cloudflare Cron Trigger;
-- detects newly available rooms, removed availability, dates, prices, area,
-  room type, and floor-plan changes;
-- sends an initial Telegram baseline and then only meaningful changes;
-- reports an outage after three consecutive failures and announces recovery;
-- exposes private `/status`, `/test`, `/help`, and `/start` Telegram commands;
-- preserves the last delivered snapshot when fetching, parsing, KV, or
-  Telegram delivery fails;
-- runs entirely on Cloudflare after deployment, with no computer left on.
+- detects new, removed, and changed Oakhouse room rows;
+- detects new, removed, and changed dated AYN shipment rows;
+- includes a concise diff and a direct page link in every alert;
+- sends an initial baseline, then remains silent until meaningful data changes;
+- reports repeated fetch or parsing failures and announces recovery;
+- preserves the last delivered snapshot if fetching, parsing, KV, or Telegram
+  delivery fails;
+- exposes private `/status`, `/test`, `/test_ayntec`, `/help`, and `/start`
+  Telegram commands;
+- keeps the two monitors isolated through separate Cron routes and KV keys.
 
 ## How it works
 
-1. A Cron Trigger invokes the Worker.
-2. The Worker downloads the public Oakhouse page with a fixed timeout.
-3. `HTMLRewriter` parses and validates every room row.
-4. The normalized result is compared with the last delivered snapshot in
-   Workers KV.
-5. Relevant differences are sent to Telegram before the snapshot advances.
+```text
+Cloudflare Cron
+  ├─ every minute ─────► Oakhouse parser ──► Oakhouse KV snapshot
+  └─ every 30 minutes ─► AYN parser ───────► AYN KV snapshot
+                                              │
+                           meaningful diff ───┴─► Telegram
+```
 
-Telegram commands do not scrape Oakhouse directly. `/status` reads the latest
-persisted snapshot and health heartbeat, while `/test` builds a synthetic diff
-from that snapshot without writing anything to KV. This keeps webhook replies
-fast and prevents a command from changing production state.
+Oakhouse is parsed from its server-rendered room table. AYN is fetched through
+Shopify's compact `main-page` section endpoint, while notifications link to the
+normal dashboard page. Each normalized snapshot is compared with the last
+successfully delivered snapshot before KV is advanced.
+
+Telegram commands do not scrape either website. `/status` reads both persisted
+snapshots and their health heartbeats. `/test` and `/test_ayntec` make a
+synthetic in-memory diff from the corresponding real snapshot and never write
+that simulation to KV.
 
 ## Security model
 
@@ -52,7 +62,7 @@ fast and prevents a command from changing production state.
   before logging or persistence.
 
 Never commit `.env`, `.dev.vars`, or `wrangler.jsonc`. The repository contains
-only empty secret examples and a reusable Wrangler template.
+only an empty secret example and a reusable Wrangler template.
 
 ## Requirements
 
@@ -81,8 +91,8 @@ pnpm exec wrangler whoami
 ```
 
 Replace `REPLACE_WITH_YOUR_CLOUDFLARE_ACCOUNT_ID` in `wrangler.jsonc` with the
-intended account ID. Keeping it explicit is especially useful when Wrangler
-can access more than one Cloudflare account.
+intended account ID. Keeping the account explicit is especially useful when
+Wrangler can access more than one Cloudflare account.
 
 Create and bind the KV namespace:
 
@@ -113,13 +123,13 @@ pnpm exec wrangler secret put TELEGRAM_WEBHOOK_SECRET
 Do not paste real values into `wrangler.jsonc`, source files, issues, or commit
 messages.
 
-### 4. Enable the Cron and deploy
+### 4. Enable both Cron Triggers and deploy
 
-After KV and all secrets exist, change the local trigger to:
+Set the local trigger configuration to:
 
 ```json
 "triggers": {
-  "crons": ["* * * * *"]
+  "crons": ["* * * * *", "*/30 * * * *"]
 }
 ```
 
@@ -146,17 +156,19 @@ method with:
 }
 ```
 
-Configure the menu through BotFather's `/setcommands` flow:
+Configure the menu through BotFather's `/setcommands` flow or Telegram's
+`setMyCommands` API:
 
 ```text
-status - Show the latest confirmed check
-test - Send a safe synthetic availability alert
-help - Show the command guide and property link
+status - Show both monitor states
+test - Send a safe synthetic Oakhouse alert
+test_ayntec - Send a safe synthetic AYN alert
+help - Show the command guide and source links
 ```
 
-Send `/status` and `/test` to verify the complete webhook-to-Worker-to-Telegram
-flow. `/test` is labelled as a simulation and never updates the stored
-snapshot.
+Send `/status`, `/test`, and `/test_ayntec` to verify the complete
+webhook-to-Worker-to-Telegram flow. Both test commands are clearly labelled as
+simulations and never update persisted snapshots.
 
 ## Local development
 
@@ -167,10 +179,11 @@ cp .dev.vars.example .dev.vars
 pnpm run dev
 ```
 
-Trigger a scheduled run locally:
+Trigger either scheduled route locally:
 
 ```bash
 curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
+curl "http://localhost:8787/__scheduled?cron=*/30+*+*+*+*"
 ```
 
 Useful checks:
@@ -183,51 +196,52 @@ pnpm exec wrangler tail oakhouse-room-monitor --format pretty
 
 ## Persistence and delivery semantics
 
-Workers KV stores two versioned records:
+Workers KV stores four versioned records:
 
-- `house:1142:snapshot:v1`: the last valid snapshot successfully delivered;
-- `house:1142:health:v1`: failure, outage, recovery, and heartbeat state.
+- `house:1142:snapshot:v1`: last valid Oakhouse snapshot delivered;
+- `house:1142:health:v1`: Oakhouse failure and heartbeat state;
+- `ayntec:shipment-dashboard:snapshot:v1`: last valid AYN snapshot delivered;
+- `ayntec:shipment-dashboard:health:v1`: AYN failure and heartbeat state.
 
 Notifications use **at-least-once delivery**. If Telegram times out after a
 partial multi-message delivery, a later run may repeat part of the alert. The
-monitor deliberately prefers a possible duplicate over silently losing a new
-room notification.
+monitor deliberately prefers a possible duplicate over silently losing a
+change notification.
 
 Workers KV is eventually consistent. Reads use its minimum 30-second cache
-TTL, so technical outage or recovery alerts can rarely be delayed or
-duplicated. A failed notification never advances the availability snapshot.
+TTL. A failed notification never advances the corresponding data snapshot.
 
 ## Free-tier usage
 
-At the default one-minute interval, the Worker performs approximately:
+With the default schedules, the Worker performs approximately:
 
-- 1,440 Worker invocations per day;
-- 2,880 KV reads per day;
-- 288 normal health-heartbeat writes per day, plus real state transitions.
+- 1,488 invocations per day: 1,440 Oakhouse and 48 AYN;
+- 2,976 KV reads per day under normal operation;
+- 288 regular Oakhouse health-heartbeat writes and 4 regular AYN heartbeat
+  writes per day, plus initial baselines and real state transitions.
 
-These figures were comfortably within the Cloudflare free-tier limits when
-this project was published, but pricing and quotas can change. Check the
-current [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
+Pricing and quotas can change. Check the current
+[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
 and [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/)
 before deploying.
 
 [Oakhouse states](https://www.oakhouse.jp/eng/helpcenter) that vacancy
-information is updated every 15 minutes. The one-minute schedule favors
-notification latency, but a slower Cron may be more appropriate for other
-deployments.
+information is updated every 15 minutes. The one-minute schedule prioritizes
+notification latency. The slower AYN schedule keeps request volume modest for
+a dashboard that changes much less frequently.
 
 ## Limitations and responsible use
 
-- A material Oakhouse markup change can require parser and fixture updates.
-- Availability alerts are informational and do not guarantee that a room can
-  still be booked.
-- Review the target site's current terms and
-  [`robots.txt`](https://www.oakhouse.jp/robots.txt), use an identifiable user
-  agent, and keep request volume reasonable.
-- Do not extend this project to bypass authentication, automate reservations,
-  or collect non-public personal data.
+- A material markup change on either source can require parser and fixture
+  updates.
+- Alerts are informational and do not guarantee continued availability.
+- Review each target site's current terms and `robots.txt`, use identifiable
+  user agents, and keep request volume reasonable.
+- Do not extend this project to bypass authentication, automate reservations
+  or purchases, or collect non-public personal data.
 
 ## License
 
-Released under the [MIT License](LICENSE). Oakhouse names, trademarks, website
-content, and property data remain the property of their respective owners.
+Released under the [MIT License](LICENSE). Oakhouse and AYN names, trademarks,
+website content, and product data remain the property of their respective
+owners.

@@ -91,6 +91,11 @@ export interface MonitorEnv {
   TELEGRAM_WEBHOOK_SECRET: string;
 }
 
+export interface WorkerEnv extends MonitorEnv {
+  AYN_TARGET_URL: string;
+  AYN_DASHBOARD_URL: string;
+}
+
 export function normalizeText(value: string): string {
   return value.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 }

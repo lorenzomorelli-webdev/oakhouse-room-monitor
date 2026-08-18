@@ -1,20 +1,31 @@
 import { describe, expect, it } from "vitest";
+import {
+  AYNTEC_HEALTH_KEY,
+  AYNTEC_SNAPSHOT_KEY,
+} from "../src/ayntec/monitor";
+import type { AyntecSnapshot } from "../src/ayntec/model";
+import { parseAyntecHtml } from "../src/ayntec/parser";
 import { handleTelegramUpdate } from "../src/commands";
 import {
   HEALTH_KEY,
   HEALTHY_STATE,
   SNAPSHOT_KEY,
   type HealthState,
-  type MonitorEnv,
+  type WorkerEnv,
   type Snapshot,
 } from "../src/model";
 import type { MonitorDependencies } from "../src/monitor";
 import { parseOakhouseHtml } from "../src/parser";
 import { BASELINE_HTML } from "./fixtures/oakhouse";
+import { AYNTEC_DASHBOARD_HTML } from "./fixtures/ayntec";
 
 const URL = "https://www.oakhouse.jp/eng/house/1142";
 const ROOMS_URL = URL + "#room";
 const NOW = "2026-08-17T17:30:00.000Z";
+const AYN_TARGET_URL =
+  "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page";
+const AYN_DASHBOARD_URL =
+  "https://www.ayntec.com/pages/shipment-dashboard";
 
 interface StateHarness {
   state: KVNamespace;
@@ -24,12 +35,18 @@ interface StateHarness {
 function createState(
   snapshot?: Snapshot,
   health: HealthState = HEALTHY_STATE,
+  ayntecSnapshot?: AyntecSnapshot,
+  ayntecHealth: HealthState = HEALTHY_STATE,
 ): StateHarness {
   const values = new Map<string, string>();
   if (snapshot) {
     values.set(SNAPSHOT_KEY, JSON.stringify(snapshot));
   }
   values.set(HEALTH_KEY, JSON.stringify(health));
+  if (ayntecSnapshot) {
+    values.set(AYNTEC_SNAPSHOT_KEY, JSON.stringify(ayntecSnapshot));
+  }
+  values.set(AYNTEC_HEALTH_KEY, JSON.stringify(ayntecHealth));
   const writes: StateHarness["writes"] = [];
   return {
     state: {
@@ -60,15 +77,22 @@ function update(text: string, chatId = 123456): unknown {
 function createHarness(
   snapshot?: Snapshot,
   health: HealthState = HEALTHY_STATE,
+  ayntecSnapshot?: AyntecSnapshot,
+  ayntecHealth: HealthState = HEALTHY_STATE,
 ): {
-  env: MonitorEnv;
+  env: WorkerEnv;
   deps: MonitorDependencies;
   messages: string[];
   logs: Array<Record<string, unknown>>;
   loads: () => number;
   writes: StateHarness["writes"];
 } {
-  const state = createState(snapshot, health);
+  const state = createState(
+    snapshot,
+    health,
+    ayntecSnapshot,
+    ayntecHealth,
+  );
   const messages: string[] = [];
   const logs: Array<Record<string, unknown>> = [];
   let loadCount = 0;
@@ -78,6 +102,8 @@ function createHarness(
       TARGET_URL: URL,
       ROOMS_URL,
       PROPERTY_NAME: "GRAN KOBE",
+      AYN_TARGET_URL,
+      AYN_DASHBOARD_URL,
       FAILURE_THRESHOLD: "3",
       FETCH_TIMEOUT_MS: "15000",
       TELEGRAM_BOT_TOKEN: "test-token",
@@ -115,7 +141,9 @@ describe("Telegram commands", () => {
     expect(harness.loads()).toBe(0);
     expect(harness.messages.join("\n")).toContain("/status");
     expect(harness.messages.join("\n")).toContain("/test");
+    expect(harness.messages.join("\n")).toContain("/test_ayntec");
     expect(harness.messages.join("\n")).toContain(ROOMS_URL);
+    expect(harness.messages.join("\n")).toContain(AYN_DASHBOARD_URL);
   });
 
   it("ignores every chat except the configured private chat", async () => {
@@ -173,6 +201,63 @@ describe("Telegram commands", () => {
     expect(text).toContain("nessuna modifica reale");
     expect(text).toContain("➕ Camera 211");
     expect(text).toContain("Camere disponibili: 4 → 5");
+    expect(harness.writes).toEqual([]);
+  });
+
+  it("adds the persisted AYN state to the aggregate /status response", async () => {
+    const oakhouseSnapshot = await parseOakhouseHtml(
+      BASELINE_HTML,
+      URL,
+      "2026-08-18T15:55:00.000Z",
+    );
+    const ayntecSnapshot = await parseAyntecHtml(
+      AYNTEC_DASHBOARD_HTML,
+      AYN_TARGET_URL,
+      "2026-08-18T16:00:00.000Z",
+    );
+    const harness = createHarness(
+      oakhouseSnapshot,
+      HEALTHY_STATE,
+      ayntecSnapshot,
+      { ...HEALTHY_STATE, lastSuccessAt: "2026-08-18T16:30:00.000Z" },
+    );
+
+    await handleTelegramUpdate(update("/status"), harness.env, harness.deps);
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("GRAN KOBE — monitor operativo");
+    expect(text).toContain("AYN Shipping Dashboard — monitor operativo");
+    expect(text).toContain("Ultima data pubblicata: 17/08/2026");
+    expect(text).toContain("Righe monitorate: 5");
+    expect(text).toContain(AYN_DASHBOARD_URL);
+    expect(harness.loads()).toBe(0);
+    expect(harness.writes).toEqual([]);
+  });
+
+  it("sends a persisted synthetic shipment diff for /test_ayntec", async () => {
+    const ayntecSnapshot = await parseAyntecHtml(
+      AYNTEC_DASHBOARD_HTML,
+      AYN_TARGET_URL,
+      "2026-08-18T16:00:00.000Z",
+    );
+    const harness = createHarness(
+      undefined,
+      HEALTHY_STATE,
+      ayntecSnapshot,
+    );
+
+    await handleTelegramUpdate(
+      update("/test_ayntec"),
+      harness.env,
+      harness.deps,
+    );
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("🧪 TEST AYN");
+    expect(text).toContain("nessuna modifica reale");
+    expect(text).toContain("✏️ 17/08/2026");
+    expect(text).toContain(AYN_DASHBOARD_URL);
+    expect(harness.loads()).toBe(0);
     expect(harness.writes).toEqual([]);
   });
 

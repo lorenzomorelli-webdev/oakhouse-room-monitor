@@ -1,4 +1,10 @@
-import type { MonitorEnv } from "./model";
+import {
+  createAyntecProductionDependencies,
+  runAyntecMonitor,
+  type AyntecMonitorEnv,
+  type AyntecMonitorRunner,
+} from "./ayntec/monitor";
+import type { MonitorEnv, WorkerEnv } from "./model";
 import {
   handleTelegramUpdate,
   type TelegramUpdateHandler,
@@ -11,11 +17,14 @@ import {
 } from "./monitor";
 
 type DependenciesFactory = (env: MonitorEnv) => MonitorDependencies;
+type AyntecDependenciesFactory = (
+  env: AyntecMonitorEnv,
+) => MonitorDependencies;
 
 export interface ScheduledWorker {
   scheduled(
     controller: ScheduledController,
-    env: MonitorEnv,
+    env: WorkerEnv,
     context: ExecutionContext,
   ): Promise<void>;
 }
@@ -23,12 +32,14 @@ export interface ScheduledWorker {
 export interface OakhouseWorker extends ScheduledWorker {
   fetch(
     request: Request,
-    env: MonitorEnv,
+    env: WorkerEnv,
     context: ExecutionContext,
   ): Promise<Response>;
 }
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
+export const OAKHOUSE_CRON = "* * * * *";
+export const AYNTEC_CRON = "*/30 * * * *";
 
 function secretsMatch(expected: string, received: string | null): boolean {
   if (!expected || received === null || expected.length !== received.length) {
@@ -45,6 +56,9 @@ export function createWorker(
   runner: MonitorRunner = runMonitor,
   dependenciesFactory: DependenciesFactory = createProductionDependencies,
   updateHandler: TelegramUpdateHandler = handleTelegramUpdate,
+  ayntecRunner: AyntecMonitorRunner = runAyntecMonitor,
+  ayntecDependenciesFactory: AyntecDependenciesFactory =
+    createAyntecProductionDependencies,
 ): OakhouseWorker {
   return {
     async fetch(request, env, _context) {
@@ -84,11 +98,15 @@ export function createWorker(
       }
       return new Response(null, { status: 204 });
     },
-    async scheduled(_controller, env, _context) {
-      const result = await runner(env, dependenciesFactory(env));
+    async scheduled(controller, env, _context) {
+      const isAyntecRun = controller.cron === AYNTEC_CRON;
+      const result = isAyntecRun
+        ? await ayntecRunner(env, ayntecDependenciesFactory(env))
+        : await runner(env, dependenciesFactory(env));
       console.log(
         JSON.stringify({
           event: "scheduled_run_finished",
+          monitor: isAyntecRun ? "ayntec" : "oakhouse",
           status: result.status,
           checkedAt: result.checkedAt,
           detail: result.detail,
@@ -99,4 +117,4 @@ export function createWorker(
 }
 
 const worker = createWorker();
-export default worker satisfies ExportedHandler<MonitorEnv>;
+export default worker satisfies ExportedHandler<WorkerEnv>;

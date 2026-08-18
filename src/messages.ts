@@ -142,14 +142,20 @@ export function formatCommandGuide(
   propertyName: string,
   roomsUrl: string,
   unknownCommand = false,
+  ayntecDashboardUrl?: string,
 ): string {
-  return [
+  const lines = [
     unknownCommand ? "❓ Comando non riconosciuto" : "🤖 " + propertyName + " — monitor operativo",
-    "/status — mostra l'ultimo controllo confermato dal monitor",
-    "/test — simula una modifica sull'ultimo snapshot senza salvarla",
+    "/status — mostra lo stato di tutti i monitor",
+    "/test — simula una modifica Oakhouse senza salvarla",
+    "/test_ayntec — simula una modifica AYN senza salvarla",
     "/help — mostra questa guida",
-    "🔗 " + roomsUrl,
-  ].join("\n");
+    "🏠 Oakhouse: " + roomsUrl,
+  ];
+  if (ayntecDashboardUrl) {
+    lines.push("📦 AYN: " + ayntecDashboardUrl);
+  }
+  return lines.join("\n");
 }
 
 export function formatStatusMessage(

@@ -1,3 +1,17 @@
+import { diffAyntecSnapshots } from "./ayntec/diff";
+import {
+  formatAyntecStatusMessage,
+  formatAyntecSyntheticTestMessage,
+} from "./ayntec/messages";
+import {
+  AYNTEC_HEALTH_KEY,
+  AYNTEC_SNAPSHOT_KEY,
+} from "./ayntec/monitor";
+import type {
+  AyntecSnapshot,
+  AyntecSnapshotDiff,
+} from "./ayntec/model";
+import { parseAyntecSnapshotState } from "./ayntec/state";
 import { diffSnapshots } from "./diff";
 import {
   AVAILABLE_STATUS,
@@ -8,9 +22,9 @@ import {
   compareRoomNumbers,
   getAvailableRoomIds,
   type HealthState,
-  type MonitorEnv,
   type Snapshot,
   type SnapshotDiff,
+  type WorkerEnv,
 } from "./model";
 import {
   formatCommandFailure,
@@ -30,7 +44,13 @@ interface TelegramMessage {
   text: string;
 }
 
-type TelegramCommand = "/start" | "/help" | "/status" | "/test" | "/unknown";
+type TelegramCommand =
+  | "/start"
+  | "/help"
+  | "/status"
+  | "/test"
+  | "/test_ayntec"
+  | "/unknown";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -58,12 +78,18 @@ function parseTelegramMessage(update: unknown): TelegramMessage | null {
 function parseCommand(text: string): TelegramCommand {
   const firstToken = text.trim().split(/\s+/, 1)[0] ?? "";
   const command = firstToken.split("@", 1)[0].toLowerCase();
-  return ["/start", "/help", "/status", "/test"].includes(command)
+  return [
+    "/start",
+    "/help",
+    "/status",
+    "/test",
+    "/test_ayntec",
+  ].includes(command)
     ? command as TelegramCommand
     : "/unknown";
 }
 
-async function readSnapshot(env: MonitorEnv): Promise<Snapshot | null> {
+async function readSnapshot(env: WorkerEnv): Promise<Snapshot | null> {
   const raw = await env.STATE.get(SNAPSHOT_KEY, {
     cacheTtl: STATE_CACHE_TTL_SECONDS,
   });
@@ -77,8 +103,33 @@ async function readSnapshot(env: MonitorEnv): Promise<Snapshot | null> {
   return snapshot;
 }
 
-async function readHealth(env: MonitorEnv): Promise<HealthState> {
+async function readHealth(env: WorkerEnv): Promise<HealthState> {
   const raw = await env.STATE.get(HEALTH_KEY, {
+    cacheTtl: STATE_CACHE_TTL_SECONDS,
+  });
+  return raw === null
+    ? { ...HEALTHY_STATE }
+    : parseHealthState(JSON.parse(raw));
+}
+
+async function readAyntecSnapshot(
+  env: WorkerEnv,
+): Promise<AyntecSnapshot | null> {
+  const raw = await env.STATE.get(AYNTEC_SNAPSHOT_KEY, {
+    cacheTtl: STATE_CACHE_TTL_SECONDS,
+  });
+  if (raw === null) {
+    return null;
+  }
+  const snapshot = parseAyntecSnapshotState(JSON.parse(raw));
+  if (snapshot.sourceUrl !== env.AYN_TARGET_URL) {
+    throw new Error("Persisted AYN snapshot belongs to another target");
+  }
+  return snapshot;
+}
+
+async function readAyntecHealth(env: WorkerEnv): Promise<HealthState> {
+  const raw = await env.STATE.get(AYNTEC_HEALTH_KEY, {
     cacheTtl: STATE_CACHE_TTL_SECONDS,
   });
   return raw === null
@@ -111,6 +162,25 @@ function syntheticAvailabilityDiff(snapshot: Snapshot): SnapshotDiff {
   return diff;
 }
 
+function syntheticAyntecDiff(
+  snapshot: AyntecSnapshot,
+): AyntecSnapshotDiff {
+  const synthetic = structuredClone(snapshot);
+  const target = Object.values(synthetic.entries).sort((left, right) =>
+    left.date.localeCompare(right.date) ||
+    left.product.localeCompare(right.product, "en")
+  ).at(-1);
+  if (!target) {
+    throw new Error("No AYN shipment entry available for synthetic test");
+  }
+  target.details += " [TEST]";
+  const diff = diffAyntecSnapshots(snapshot, synthetic);
+  if (!diff.hasChanges) {
+    throw new Error("Synthetic AYN test produced no change");
+  }
+  return diff;
+}
+
 async function sendText(
   deps: MonitorDependencies,
   text: string,
@@ -119,26 +189,35 @@ async function sendText(
 }
 
 async function runStatus(
-  env: MonitorEnv,
+  env: WorkerEnv,
   deps: MonitorDependencies,
 ): Promise<void> {
-  const [snapshot, health] = await Promise.all([
+  const [snapshot, health, ayntecSnapshot, ayntecHealth] = await Promise.all([
     readSnapshot(env),
     readHealth(env),
+    readAyntecSnapshot(env),
+    readAyntecHealth(env),
   ]);
   await sendText(
     deps,
-    formatStatusMessage(
-      snapshot,
-      health,
-      env.PROPERTY_NAME,
-      env.ROOMS_URL,
-    ),
+    [
+      formatStatusMessage(
+        snapshot,
+        health,
+        env.PROPERTY_NAME,
+        env.ROOMS_URL,
+      ),
+      formatAyntecStatusMessage(
+        ayntecSnapshot,
+        ayntecHealth,
+        env.AYN_DASHBOARD_URL,
+      ),
+    ].join("\n\n━━━━━━━━━━\n\n"),
   );
 }
 
 async function runTest(
-  env: MonitorEnv,
+  env: WorkerEnv,
   deps: MonitorDependencies,
 ): Promise<void> {
   const snapshot = await readSnapshot(env);
@@ -155,9 +234,26 @@ async function runTest(
   );
 }
 
+async function runAyntecTest(
+  env: WorkerEnv,
+  deps: MonitorDependencies,
+): Promise<void> {
+  const snapshot = await readAyntecSnapshot(env);
+  if (snapshot === null) {
+    throw new Error("Persisted AYN snapshot is not available");
+  }
+  await sendText(
+    deps,
+    formatAyntecSyntheticTestMessage(
+      syntheticAyntecDiff(snapshot),
+      env.AYN_DASHBOARD_URL,
+    ),
+  );
+}
+
 export type TelegramUpdateHandler = (
   update: unknown,
-  env: MonitorEnv,
+  env: WorkerEnv,
   deps: MonitorDependencies,
 ) => Promise<void>;
 
@@ -182,6 +278,8 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
       await runStatus(env, deps);
     } else if (command === "/test") {
       await runTest(env, deps);
+    } else if (command === "/test_ayntec") {
+      await runAyntecTest(env, deps);
     } else {
       await sendText(
         deps,
@@ -189,6 +287,7 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
           env.PROPERTY_NAME,
           env.ROOMS_URL,
           !["/start", "/help"].includes(command),
+          env.AYN_DASHBOARD_URL,
         ),
       );
     }
@@ -198,7 +297,15 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
     try {
       await sendText(
         deps,
-        formatCommandFailure(command, env.PROPERTY_NAME, env.ROOMS_URL),
+        formatCommandFailure(
+          command,
+          command === "/test_ayntec"
+            ? "AYN Shipping Dashboard"
+            : env.PROPERTY_NAME,
+          command === "/test_ayntec"
+            ? env.AYN_DASHBOARD_URL
+            : env.ROOMS_URL,
+        ),
       );
     } catch {
       deps.log({

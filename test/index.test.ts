@@ -5,17 +5,21 @@ import {
 } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { createWorker } from "../src/index";
-import type { MonitorEnv } from "../src/model";
+import type { AyntecMonitorRunner } from "../src/ayntec/monitor";
+import type { MonitorEnv, WorkerEnv } from "../src/model";
 import type {
   MonitorDependencies,
   MonitorRunner,
 } from "../src/monitor";
 
-const env: MonitorEnv = {
+const env: WorkerEnv = {
   STATE: workerEnv.STATE,
   TARGET_URL: "https://www.oakhouse.jp/eng/house/1142",
   ROOMS_URL: "https://www.oakhouse.jp/eng/house/1142#room",
   PROPERTY_NAME: "GRAN KOBE",
+  AYN_TARGET_URL:
+    "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page",
+  AYN_DASHBOARD_URL: "https://www.ayntec.com/pages/shipment-dashboard",
   FAILURE_THRESHOLD: "3",
   FETCH_TIMEOUT_MS: "15000",
   TELEGRAM_BOT_TOKEN: "test-token",
@@ -57,6 +61,56 @@ describe("scheduled Worker entry point", () => {
     );
 
     expect(received).toEqual([env]);
+  });
+
+  it("routes the 30-minute Cron exclusively to the AYN monitor", async () => {
+    const oakhouseRuns: MonitorEnv[] = [];
+    const ayntecRuns: WorkerEnv[] = [];
+    const oakhouseRunner: MonitorRunner = async (receivedEnv) => {
+      oakhouseRuns.push(receivedEnv);
+      return {
+        status: "unchanged",
+        checkedAt: "2026-08-17T17:30:00.000Z",
+        detail: "No availability changes",
+      };
+    };
+    const ayntecRunner: AyntecMonitorRunner = async (receivedEnv) => {
+      ayntecRuns.push(receivedEnv as WorkerEnv);
+      return {
+        status: "unchanged",
+        checkedAt: "2026-08-17T17:30:00.000Z",
+        detail: "No AYN shipment changes",
+      };
+    };
+    const dependencies: MonitorDependencies = {
+      async loadHtml() {
+        return "";
+      },
+      async sendMessages() {},
+      now() {
+        return "2026-08-17T17:30:00.000Z";
+      },
+      log() {},
+    };
+    const worker = createWorker(
+      oakhouseRunner,
+      () => dependencies,
+      async () => {},
+      ayntecRunner,
+      () => dependencies,
+    );
+
+    await worker.scheduled(
+      createScheduledController({
+        scheduledTime: new Date("2026-08-17T17:30:00.000Z"),
+        cron: "*/30 * * * *",
+      }),
+      env,
+      createExecutionContext(),
+    );
+
+    expect(oakhouseRuns).toEqual([]);
+    expect(ayntecRuns).toEqual([env]);
   });
 });
 
