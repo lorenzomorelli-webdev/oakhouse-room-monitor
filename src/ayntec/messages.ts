@@ -72,10 +72,19 @@ export function formatAyntecDiffMessage(
     lines.push("➖ " + entryHeading(entry), "   " + entry.details);
   }
   for (const entry of diff.changed) {
-    lines.push(
-      "✏️ " + entryHeading(entry.after),
-      "   " + entry.before.details + " → " + entry.after.details,
-    );
+    lines.push("✏️ " + entryHeading(entry.after));
+    if (entry.before.product !== entry.after.product) {
+      lines.push(
+        "   Prodotto: " + entry.before.product + " → " +
+          entry.after.product,
+      );
+    }
+    if (entry.before.details !== entry.after.details) {
+      lines.push(
+        "   Dettagli: " + entry.before.details + " → " +
+          entry.after.details,
+      );
+    }
   }
   lines.push(
     "",

@@ -99,14 +99,25 @@ export function createWorker(
       return new Response(null, { status: 204 });
     },
     async scheduled(controller, env, _context) {
-      const isAyntecRun = controller.cron === AYNTEC_CRON;
-      const result = isAyntecRun
-        ? await ayntecRunner(env, ayntecDependenciesFactory(env))
-        : await runner(env, dependenciesFactory(env));
+      let monitor: "oakhouse" | "ayntec";
+      let result;
+      if (controller.cron === OAKHOUSE_CRON) {
+        monitor = "oakhouse";
+        result = await runner(env, dependenciesFactory(env));
+      } else if (controller.cron === AYNTEC_CRON) {
+        monitor = "ayntec";
+        result = await ayntecRunner(env, ayntecDependenciesFactory(env));
+      } else {
+        console.warn(JSON.stringify({
+          event: "scheduled_cron_ignored",
+          cron: controller.cron,
+        }));
+        return;
+      }
       console.log(
         JSON.stringify({
           event: "scheduled_run_finished",
-          monitor: isAyntecRun ? "ayntec" : "oakhouse",
+          monitor,
           status: result.status,
           checkedAt: result.checkedAt,
           detail: result.detail,

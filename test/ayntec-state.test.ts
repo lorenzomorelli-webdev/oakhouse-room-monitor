@@ -106,6 +106,19 @@ describe("parseAyntecSnapshotState", () => {
     },
   );
 
+  it("rejects an AYN snapshot with a non-timestamp checkedAt", async () => {
+    const snapshot = await parseAyntecHtml(
+      AYNTEC_DASHBOARD_HTML,
+      SOURCE_URL,
+      "2026-08-18T16:00:00.000Z",
+    );
+
+    expect(() => parseAyntecSnapshotState({
+      ...snapshot,
+      checkedAt: "recently",
+    })).toThrow("Invalid persisted AYN snapshot");
+  });
+
   it("rejects an AYN entry whose key no longer matches its product", async () => {
     const snapshot = await parseAyntecHtml(
       AYNTEC_DASHBOARD_HTML,
@@ -142,6 +155,29 @@ describe("parseAyntecSnapshotState", () => {
     expect(() => parseAyntecSnapshotState({
       ...snapshot,
       latestDate: "not-a-date",
+      entries,
+    })).toThrow("Invalid persisted AYN snapshot");
+  });
+
+  it("rejects an impossible persisted calendar date", async () => {
+    const snapshot = await parseAyntecHtml(
+      AYNTEC_DASHBOARD_HTML,
+      SOURCE_URL,
+      "2026-08-18T16:00:00.000Z",
+    );
+    const oldId = "2026-08-17|ayn thor rainbow pro";
+    const newId = "2026-99-99|ayn thor rainbow pro";
+    const entries = { ...snapshot.entries };
+    delete entries[oldId];
+    entries[newId] = {
+      ...snapshot.entries[oldId],
+      id: newId,
+      date: "2026-99-99",
+    };
+
+    expect(() => parseAyntecSnapshotState({
+      ...snapshot,
+      latestDate: "2026-99-99",
       entries,
     })).toThrow("Invalid persisted AYN snapshot");
   });

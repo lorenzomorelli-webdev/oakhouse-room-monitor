@@ -108,4 +108,25 @@ describe("AYN Telegram messages", () => {
     expect(text).toContain("✏️ 17/08/2026 · AYN Thor Rainbow Max(512)");
     expect(text).toContain(DASHBOARD_URL);
   });
+
+  it("shows a product-only correction instead of a no-op details range", async () => {
+    const previous = await parseAyntecHtml(
+      AYNTEC_DASHBOARD_HTML,
+      SOURCE_URL,
+      "2026-08-18T16:00:00.000Z",
+    );
+    const current = structuredClone(previous);
+    current.entries["2026-08-17|ayn thor rainbow pro"].product =
+      "AYN Thor rainbow Pro";
+
+    const text = formatAyntecDiffMessage(
+      diffAyntecSnapshots(previous, current),
+      DASHBOARD_URL,
+    );
+
+    expect(text).toContain(
+      "Prodotto: AYN Thor Rainbow Pro → AYN Thor rainbow Pro",
+    );
+    expect(text).not.toContain("2502xx--2529xx → 2502xx--2529xx");
+  });
 });

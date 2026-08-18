@@ -97,6 +97,20 @@ describe("runAyntecMonitor", () => {
     expect(harness.messages).toEqual([]);
   });
 
+  it("refreshes the success heartbeat on every 30-minute run", async () => {
+    const harness = createHarness();
+
+    await runAyntecMonitor(env, harness.deps);
+    expect(
+      await env.STATE.get<HealthState>(AYNTEC_HEALTH_KEY, "json"),
+    ).toMatchObject({ lastSuccessAt: "2026-08-18T16:00:00.000Z" });
+
+    await runAyntecMonitor(env, harness.deps);
+    expect(
+      await env.STATE.get<HealthState>(AYNTEC_HEALTH_KEY, "json"),
+    ).toMatchObject({ lastSuccessAt: "2026-08-18T16:30:00.000Z" });
+  });
+
   it("notifies a changed shipment range before advancing the snapshot", async () => {
     const harness = createHarness();
     await runAyntecMonitor(env, harness.deps);

@@ -40,7 +40,7 @@ export type AyntecMonitorRunner = (
 ) => Promise<RunResult>;
 
 const MONITOR_NAME = "AYN Shipping Dashboard";
-const HEALTH_HEARTBEAT_MS = 6 * 60 * 60 * 1000;
+const HEALTH_HEARTBEAT_MS = 30 * 60 * 1000;
 const STATE_CACHE_TTL_SECONDS = 30;
 
 function positiveInteger(value: string, name: string): number {

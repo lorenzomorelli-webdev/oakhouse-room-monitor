@@ -112,6 +112,54 @@ describe("scheduled Worker entry point", () => {
     expect(oakhouseRuns).toEqual([]);
     expect(ayntecRuns).toEqual([env]);
   });
+
+  it("does not run either monitor for an unknown Cron expression", async () => {
+    let oakhouseRuns = 0;
+    let ayntecRuns = 0;
+    const dependencies: MonitorDependencies = {
+      async loadHtml() {
+        return "";
+      },
+      async sendMessages() {},
+      now() {
+        return "2026-08-17T18:00:00.000Z";
+      },
+      log() {},
+    };
+    const worker = createWorker(
+      async () => {
+        oakhouseRuns += 1;
+        return {
+          status: "unchanged",
+          checkedAt: "2026-08-17T18:00:00.000Z",
+          detail: "No availability changes",
+        };
+      },
+      () => dependencies,
+      async () => {},
+      async () => {
+        ayntecRuns += 1;
+        return {
+          status: "unchanged",
+          checkedAt: "2026-08-17T18:00:00.000Z",
+          detail: "No AYN shipment changes",
+        };
+      },
+      () => dependencies,
+    );
+
+    await worker.scheduled(
+      createScheduledController({
+        scheduledTime: new Date("2026-08-17T18:00:00.000Z"),
+        cron: "0 * * * *",
+      }),
+      env,
+      createExecutionContext(),
+    );
+
+    expect(oakhouseRuns).toBe(0);
+    expect(ayntecRuns).toBe(0);
+  });
 });
 
 describe("Telegram webhook entry point", () => {

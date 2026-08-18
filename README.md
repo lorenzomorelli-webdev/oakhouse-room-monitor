@@ -217,7 +217,7 @@ With the default schedules, the Worker performs approximately:
 
 - 1,488 invocations per day: 1,440 Oakhouse and 48 AYN;
 - 2,976 KV reads per day under normal operation;
-- 288 regular Oakhouse health-heartbeat writes and 4 regular AYN heartbeat
+- 288 regular Oakhouse health-heartbeat writes and 48 regular AYN heartbeat
   writes per day, plus initial baselines and real state transitions.
 
 Pricing and quotas can change. Check the current

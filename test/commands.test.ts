@@ -30,6 +30,7 @@ const AYN_DASHBOARD_URL =
 interface StateHarness {
   state: KVNamespace;
   writes: Array<{ key: string; value: string }>;
+  setRaw(key: string, value: string): void;
 }
 
 function createState(
@@ -59,6 +60,9 @@ function createState(
       },
     } as unknown as KVNamespace,
     writes,
+    setRaw(key, value) {
+      values.set(key, value);
+    },
   };
 }
 
@@ -86,6 +90,7 @@ function createHarness(
   logs: Array<Record<string, unknown>>;
   loads: () => number;
   writes: StateHarness["writes"];
+  setRawState(key: string, value: string): void;
 } {
   const state = createState(
     snapshot,
@@ -129,6 +134,7 @@ function createHarness(
     logs,
     loads: () => loadCount,
     writes: state.writes,
+    setRawState: state.setRaw,
   };
 }
 
@@ -231,6 +237,30 @@ describe("Telegram commands", () => {
     expect(text).toContain("Righe monitorate: 5");
     expect(text).toContain(AYN_DASHBOARD_URL);
     expect(harness.loads()).toBe(0);
+    expect(harness.writes).toEqual([]);
+  });
+
+  it("still reports Oakhouse when the persisted AYN state is invalid", async () => {
+    const oakhouseSnapshot = await parseOakhouseHtml(
+      BASELINE_HTML,
+      URL,
+      "2026-08-18T15:55:00.000Z",
+    );
+    const harness = createHarness(oakhouseSnapshot);
+    harness.setRawState(
+      AYNTEC_SNAPSHOT_KEY,
+      JSON.stringify({ schemaVersion: 999, entries: {} }),
+    );
+
+    await handleTelegramUpdate(update("/status"), harness.env, harness.deps);
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("✅ GRAN KOBE — monitor operativo");
+    expect(text).toContain(
+      "⚠️ AYN Shipping Dashboard — stato non disponibile",
+    );
+    expect(text).toContain(AYN_DASHBOARD_URL);
+    expect(text).not.toContain("comando /status non riuscito");
     expect(harness.writes).toEqual([]);
   });
 

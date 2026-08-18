@@ -12,6 +12,31 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isIsoTimestamp(value: unknown): value is string {
+  if (!isNonEmptyString(value)) {
+    return false;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day;
+}
+
 function invalidSnapshot(): never {
   throw new Error("Invalid persisted AYN snapshot");
 }
@@ -21,7 +46,7 @@ export function parseAyntecSnapshotState(value: unknown): AyntecSnapshot {
     !isRecord(value) ||
     value.schemaVersion !== AYNTEC_SCHEMA_VERSION ||
     !isNonEmptyString(value.sourceUrl) ||
-    !isNonEmptyString(value.checkedAt) ||
+    !isIsoTimestamp(value.checkedAt) ||
     !isRecord(value.entries) ||
     !Number.isInteger(value.entryCount) ||
     Number(value.entryCount) <= 0 ||
@@ -36,8 +61,7 @@ export function parseAyntecSnapshotState(value: unknown): AyntecSnapshot {
     if (
       !isRecord(entry) ||
       entry.id !== key ||
-      !isNonEmptyString(entry.date) ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(entry.date) ||
+      !isCalendarDate(entry.date) ||
       !isNonEmptyString(entry.product) ||
       !isNonEmptyString(entry.details)
     ) {

@@ -30,6 +30,7 @@ import {
   formatCommandFailure,
   formatCommandGuide,
   formatStatusMessage,
+  formatStatusUnavailable,
   formatSyntheticTestMessage,
   splitTelegramText,
 } from "./messages";
@@ -192,26 +193,49 @@ async function runStatus(
   env: WorkerEnv,
   deps: MonitorDependencies,
 ): Promise<void> {
-  const [snapshot, health, ayntecSnapshot, ayntecHealth] = await Promise.all([
-    readSnapshot(env),
-    readHealth(env),
-    readAyntecSnapshot(env),
-    readAyntecHealth(env),
-  ]);
-  await sendText(
-    deps,
-    [
-      formatStatusMessage(
+  const [oakhouse, ayntec] = await Promise.allSettled([
+    Promise.all([readSnapshot(env), readHealth(env)]).then(
+      ([snapshot, health]) => formatStatusMessage(
         snapshot,
         health,
         env.PROPERTY_NAME,
         env.ROOMS_URL,
       ),
-      formatAyntecStatusMessage(
-        ayntecSnapshot,
-        ayntecHealth,
+    ),
+    Promise.all([readAyntecSnapshot(env), readAyntecHealth(env)]).then(
+      ([snapshot, health]) => formatAyntecStatusMessage(
+        snapshot,
+        health,
         env.AYN_DASHBOARD_URL,
       ),
+    ),
+  ]);
+  if (oakhouse.status === "rejected") {
+    deps.log({
+      level: "error",
+      event: "telegram_status_section_failed",
+      monitor: "oakhouse",
+    });
+  }
+  if (ayntec.status === "rejected") {
+    deps.log({
+      level: "error",
+      event: "telegram_status_section_failed",
+      monitor: "ayntec",
+    });
+  }
+  await sendText(
+    deps,
+    [
+      oakhouse.status === "fulfilled"
+        ? oakhouse.value
+        : formatStatusUnavailable(env.PROPERTY_NAME, env.ROOMS_URL),
+      ayntec.status === "fulfilled"
+        ? ayntec.value
+        : formatStatusUnavailable(
+          "AYN Shipping Dashboard",
+          env.AYN_DASHBOARD_URL,
+        ),
     ].join("\n\n━━━━━━━━━━\n\n"),
   );
 }

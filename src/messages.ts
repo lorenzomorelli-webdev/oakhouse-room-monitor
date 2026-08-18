@@ -223,6 +223,18 @@ export function formatStatusMessage(
   return sections.join("\n\n");
 }
 
+export function formatStatusUnavailable(
+  monitorName: string,
+  sourceUrl: string,
+): string {
+  return [
+    "⚠️ " + monitorName + " — stato non disponibile",
+    "Impossibile leggere lo snapshot o lo stato di salute salvato.",
+    "Il monitor schedulato continua a funzionare.",
+    "🔗 " + sourceUrl,
+  ].join("\n");
+}
+
 export function formatSyntheticTestMessage(
   diff: SnapshotDiff,
   propertyName: string,
