@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sendTelegramMessages } from "../src/telegram";
+import {
+  sendTelegramMessages,
+  syncTelegramCommandMenu,
+  TELEGRAM_COMMANDS,
+} from "../src/telegram";
 import type { FetchLike } from "../src/source";
 
 describe("sendTelegramMessages", () => {
@@ -88,5 +92,64 @@ describe("sendTelegramMessages", () => {
       ),
     ).rejects.toThrow("Telegram send failed with HTTP 503");
     expect(delivered).toEqual(["first"]);
+  });
+});
+
+describe("syncTelegramCommandMenu", () => {
+  it("defines all commands for the exact chat and forces its menu button", async () => {
+    expect(TELEGRAM_COMMANDS.map(({ command }) => command)).toEqual([
+      "start",
+      "status",
+      "test",
+      "test_ayntec",
+      "help",
+    ]);
+    const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+    const fetcher: FetchLike = async (input, init) => {
+      requests.push({
+        method: String(input).split("/").at(-1)!,
+        body: JSON.parse(String(init?.body)),
+      });
+      return Response.json({ ok: true, result: true });
+    };
+
+    await syncTelegramCommandMenu(
+      "secret-token",
+      "123456",
+      fetcher,
+    );
+
+    expect(requests).toEqual([
+      {
+        method: "setMyCommands",
+        body: {
+          commands: TELEGRAM_COMMANDS,
+          scope: { type: "chat", chat_id: "123456" },
+        },
+      },
+      {
+        method: "setMyCommands",
+        body: {
+          commands: TELEGRAM_COMMANDS,
+          scope: { type: "chat", chat_id: "123456" },
+          language_code: "it",
+        },
+      },
+      {
+        method: "setMyCommands",
+        body: {
+          commands: TELEGRAM_COMMANDS,
+          scope: { type: "chat", chat_id: "123456" },
+          language_code: "en",
+        },
+      },
+      {
+        method: "setChatMenuButton",
+        body: {
+          chat_id: "123456",
+          menu_button: { type: "commands" },
+        },
+      },
+    ]);
   });
 });

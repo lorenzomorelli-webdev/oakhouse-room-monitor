@@ -89,6 +89,7 @@ function createHarness(
   messages: string[];
   logs: Array<Record<string, unknown>>;
   loads: () => number;
+  menuSyncs: () => number;
   writes: StateHarness["writes"];
   setRawState(key: string, value: string): void;
 } {
@@ -101,6 +102,7 @@ function createHarness(
   const messages: string[] = [];
   const logs: Array<Record<string, unknown>> = [];
   let loadCount = 0;
+  let menuSyncCount = 0;
   return {
     env: {
       STATE: state.state,
@@ -123,6 +125,9 @@ function createHarness(
       async sendMessages(chunks) {
         messages.push(...chunks);
       },
+      async syncCommandMenu() {
+        menuSyncCount += 1;
+      },
       now() {
         return NOW;
       },
@@ -133,6 +138,7 @@ function createHarness(
     messages,
     logs,
     loads: () => loadCount,
+    menuSyncs: () => menuSyncCount,
     writes: state.writes,
     setRawState: state.setRaw,
   };
@@ -145,11 +151,30 @@ describe("Telegram commands", () => {
     await handleTelegramUpdate(update("/start"), harness.env, harness.deps);
 
     expect(harness.loads()).toBe(0);
+    expect(harness.menuSyncs()).toBe(1);
     expect(harness.messages.join("\n")).toContain("/status");
     expect(harness.messages.join("\n")).toContain("/test");
     expect(harness.messages.join("\n")).toContain("/test_ayntec");
     expect(harness.messages.join("\n")).toContain(ROOMS_URL);
     expect(harness.messages.join("\n")).toContain(AYN_DASHBOARD_URL);
+  });
+
+  it("still answers /help when Telegram menu synchronization fails", async () => {
+    const harness = createHarness();
+    const deps: MonitorDependencies = {
+      ...harness.deps,
+      async syncCommandMenu() {
+        throw new Error("Injected menu API outage");
+      },
+    };
+
+    await handleTelegramUpdate(update("/help"), harness.env, deps);
+
+    expect(harness.messages.join("\n")).toContain("/test_ayntec");
+    expect(harness.logs).toContainEqual({
+      level: "error",
+      event: "telegram_command_menu_sync_failed",
+    });
   });
 
   it("ignores every chat except the configured private chat", async () => {
@@ -285,7 +310,8 @@ describe("Telegram commands", () => {
     const text = harness.messages.join("\n");
     expect(text).toContain("🧪 TEST AYN");
     expect(text).toContain("nessuna modifica reale");
-    expect(text).toContain("✏️ 17/08/2026");
+    expect(text).toContain("nuovo batch pubblicato");
+    expect(text).toContain("18/08/2026");
     expect(text).toContain(AYN_DASHBOARD_URL);
     expect(harness.loads()).toBe(0);
     expect(harness.writes).toEqual([]);

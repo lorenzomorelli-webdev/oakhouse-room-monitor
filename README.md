@@ -18,8 +18,10 @@ always-on server is required.
 ## Features
 
 - detects new, removed, and changed Oakhouse room rows;
-- detects new, removed, and changed dated AYN shipment rows;
-- includes a concise diff and a direct page link in every alert;
+- alerts for AYN only when a newer shipment date appears and includes every row
+  in that latest batch;
+- silently stores AYN corrections made within the already-known latest date;
+- includes a concise recap and a direct page link in every alert;
 - sends an initial baseline, then remains silent until meaningful data changes;
 - reports repeated fetch or parsing failures and announces recovery;
 - preserves the last delivered snapshot if fetching, parsing, KV, or Telegram
@@ -35,18 +37,20 @@ Cloudflare Cron
   ├─ every minute ─────► Oakhouse parser ──► Oakhouse KV snapshot
   └─ every 30 minutes ─► AYN parser ───────► AYN KV snapshot
                                               │
-                           meaningful diff ───┴─► Telegram
+                         relevant change ───┴─► Telegram
 ```
 
 Oakhouse is parsed from its server-rendered room table. AYN is fetched through
 Shopify's compact `main-page` section endpoint, while notifications link to the
-normal dashboard page. Each normalized snapshot is compared with the last
-successfully delivered snapshot before KV is advanced.
+normal dashboard page. Oakhouse alerts on tracked room changes. AYN alerts only
+when its maximum published shipment date moves forward; same-day corrections
+refresh the stored snapshot without sending noise.
 
 Telegram commands do not scrape either website. `/status` reads both persisted
-snapshots and their health heartbeats. `/test` and `/test_ayntec` make a
-synthetic in-memory diff from the corresponding real snapshot and never write
-that simulation to KV.
+snapshots and their health heartbeats; its AYN section also prints every row
+from the latest batch. `/test` makes a synthetic Oakhouse diff, while
+`/test_ayntec` simulates a batch on the following calendar day. Neither
+simulation writes to KV.
 
 ## Security model
 
@@ -156,19 +160,21 @@ method with:
 }
 ```
 
-Configure the menu through BotFather's `/setcommands` flow or Telegram's
-`setMyCommands` API:
+The Worker treats the following list as its command manifest. Sending `/start`
+or `/help` synchronizes it through Telegram's `setMyCommands` API for the exact
+configured private chat and activates the native command menu button:
 
 ```text
+start - Start the bot and show its guide
 status - Show both monitor states
 test - Send a safe synthetic Oakhouse alert
-test_ayntec - Send a safe synthetic AYN alert
+test_ayntec - Simulate an AYN batch on the next calendar day
 help - Show the command guide and source links
 ```
 
-Send `/status`, `/test`, and `/test_ayntec` to verify the complete
-webhook-to-Worker-to-Telegram flow. Both test commands are clearly labelled as
-simulations and never update persisted snapshots.
+Send `/help` once, then `/status`, `/test`, and `/test_ayntec` to verify the
+complete webhook-to-Worker-to-Telegram flow. Both test commands are clearly
+labelled as simulations and never update persisted snapshots.
 
 ## Local development
 
@@ -200,7 +206,8 @@ Workers KV stores four versioned records:
 
 - `house:1142:snapshot:v1`: last valid Oakhouse snapshot delivered;
 - `house:1142:health:v1`: Oakhouse failure and heartbeat state;
-- `ayntec:shipment-dashboard:snapshot:v1`: last valid AYN snapshot delivered;
+- `ayntec:shipment-dashboard:snapshot:v1`: last valid AYN snapshot, including
+  silently stored same-day corrections;
 - `ayntec:shipment-dashboard:health:v1`: AYN failure and heartbeat state.
 
 Notifications use **at-least-once delivery**. If Telegram times out after a

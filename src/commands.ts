@@ -1,4 +1,3 @@
-import { diffAyntecSnapshots } from "./ayntec/diff";
 import {
   formatAyntecStatusMessage,
   formatAyntecSyntheticTestMessage,
@@ -9,7 +8,6 @@ import {
 } from "./ayntec/monitor";
 import type {
   AyntecSnapshot,
-  AyntecSnapshotDiff,
 } from "./ayntec/model";
 import { parseAyntecSnapshotState } from "./ayntec/state";
 import { diffSnapshots } from "./diff";
@@ -163,23 +161,35 @@ function syntheticAvailabilityDiff(snapshot: Snapshot): SnapshotDiff {
   return diff;
 }
 
-function syntheticAyntecDiff(
+function nextCalendarDate(value: string): string {
+  const date = new Date(value + "T00:00:00.000Z");
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function syntheticAyntecNewBatch(
   snapshot: AyntecSnapshot,
-): AyntecSnapshotDiff {
+): AyntecSnapshot {
   const synthetic = structuredClone(snapshot);
-  const target = Object.values(synthetic.entries).sort((left, right) =>
-    left.date.localeCompare(right.date) ||
-    left.product.localeCompare(right.product, "en")
-  ).at(-1);
-  if (!target) {
-    throw new Error("No AYN shipment entry available for synthetic test");
+  const nextDate = nextCalendarDate(snapshot.latestDate);
+  const latestBatch = Object.values(snapshot.entries).filter(
+    (entry) => entry.date === snapshot.latestDate,
+  );
+  if (latestBatch.length === 0) {
+    throw new Error("No AYN shipment batch available for synthetic test");
   }
-  target.details += " [TEST]";
-  const diff = diffAyntecSnapshots(snapshot, synthetic);
-  if (!diff.hasChanges) {
-    throw new Error("Synthetic AYN test produced no change");
+  for (const entry of latestBatch) {
+    const id = nextDate + "|" +
+      entry.product.normalize("NFKC").toLocaleLowerCase("en-US");
+    synthetic.entries[id] = {
+      ...entry,
+      id,
+      date: nextDate,
+    };
   }
-  return diff;
+  synthetic.latestDate = nextDate;
+  synthetic.entryCount = Object.keys(synthetic.entries).length;
+  return synthetic;
 }
 
 async function sendText(
@@ -269,7 +279,7 @@ async function runAyntecTest(
   await sendText(
     deps,
     formatAyntecSyntheticTestMessage(
-      syntheticAyntecDiff(snapshot),
+      syntheticAyntecNewBatch(snapshot),
       env.AYN_DASHBOARD_URL,
     ),
   );
@@ -305,6 +315,20 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
     } else if (command === "/test_ayntec") {
       await runAyntecTest(env, deps);
     } else {
+      if (["/start", "/help"].includes(command) && deps.syncCommandMenu) {
+        try {
+          await deps.syncCommandMenu();
+          deps.log({
+            level: "info",
+            event: "telegram_command_menu_synced",
+          });
+        } catch {
+          deps.log({
+            level: "error",
+            event: "telegram_command_menu_sync_failed",
+          });
+        }
+      }
       await sendText(
         deps,
         formatCommandGuide(

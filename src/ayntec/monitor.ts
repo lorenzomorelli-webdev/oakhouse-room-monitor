@@ -13,8 +13,8 @@ import { parseHealthState } from "../state";
 import { sendTelegramMessages } from "../telegram";
 import { diffAyntecSnapshots } from "./diff";
 import {
-  formatAyntecDiffMessage,
   formatAyntecInitialMessage,
+  formatAyntecNewBatchMessage,
 } from "./messages";
 import type { AyntecSnapshot } from "./model";
 import { parseAyntecHtml } from "./parser";
@@ -231,14 +231,16 @@ export const runAyntecMonitor: AyntecMonitorRunner = async (env, deps) => {
   }
 
   const diff = previous ? diffAyntecSnapshots(previous, current) : null;
+  const hasNewShipmentDay = previous !== null &&
+    current.latestDate > previous.latestDate;
   const texts: string[] = [];
   if (health.outageDetected) {
     texts.push(formatRecoveryMessage(MONITOR_NAME, env.AYN_DASHBOARD_URL));
   }
   if (previous === null) {
     texts.push(formatAyntecInitialMessage(current, env.AYN_DASHBOARD_URL));
-  } else if (diff?.hasChanges) {
-    texts.push(formatAyntecDiffMessage(diff, env.AYN_DASHBOARD_URL));
+  } else if (hasNewShipmentDay) {
+    texts.push(formatAyntecNewBatchMessage(current, env.AYN_DASHBOARD_URL));
   }
 
   try {
@@ -252,7 +254,11 @@ export const runAyntecMonitor: AyntecMonitorRunner = async (env, deps) => {
   }
 
   try {
-    if (previous === null || diff?.hasChanges) {
+    const shouldStoreSnapshot = previous === null || (
+      diff?.hasChanges === true &&
+      current.latestDate >= previous.latestDate
+    );
+    if (shouldStoreSnapshot) {
       await env.STATE.put(AYNTEC_SNAPSHOT_KEY, JSON.stringify(current));
     }
     const recovered =
@@ -274,13 +280,13 @@ export const runAyntecMonitor: AyntecMonitorRunner = async (env, deps) => {
 
   const status = previous === null
     ? "initialized"
-    : diff?.hasChanges
+    : hasNewShipmentDay
       ? "notified"
       : health.outageDetected
         ? "recovered"
         : "unchanged";
   const detail = status === "unchanged"
-    ? "No AYN shipment changes"
+    ? "No new AYN shipment day"
     : status === "recovered"
       ? "AYN monitor recovered"
       : "AYN snapshot delivered and stored";

@@ -1,3 +1,4 @@
+import { TELEGRAM_COMMANDS } from "./bot-commands";
 import {
   type ChangedRoom,
   type HealthState,
@@ -146,10 +147,9 @@ export function formatCommandGuide(
 ): string {
   const lines = [
     unknownCommand ? "❓ Comando non riconosciuto" : "🤖 " + propertyName + " — monitor operativo",
-    "/status — mostra lo stato di tutti i monitor",
-    "/test — simula una modifica Oakhouse senza salvarla",
-    "/test_ayntec — simula una modifica AYN senza salvarla",
-    "/help — mostra questa guida",
+    ...TELEGRAM_COMMANDS.map(
+      ({ command, description }) => "/" + command + " — " + description,
+    ),
     "🏠 Oakhouse: " + roomsUrl,
   ];
   if (ayntecDashboardUrl) {

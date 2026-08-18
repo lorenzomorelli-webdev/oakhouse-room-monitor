@@ -19,7 +19,10 @@ import {
 import { parseOakhouseHtml } from "./parser";
 import { fetchOakhouseHtml } from "./source";
 import { parseHealthState, parseSnapshotState } from "./state";
-import { sendTelegramMessages } from "./telegram";
+import {
+  sendTelegramMessages,
+  syncTelegramCommandMenu,
+} from "./telegram";
 
 export type RunStatus =
   | "initialized"
@@ -37,6 +40,7 @@ export interface RunResult {
 export interface MonitorDependencies {
   loadHtml(url: string, timeoutMs: number): Promise<string>;
   sendMessages(messages: string[]): Promise<void>;
+  syncCommandMenu?(): Promise<void>;
   now(): string;
   log(event: Record<string, unknown>): void;
 }
@@ -216,6 +220,12 @@ export function createProductionDependencies(
         env.TELEGRAM_BOT_TOKEN,
         env.TELEGRAM_CHAT_ID,
         messages,
+      );
+    },
+    syncCommandMenu() {
+      return syncTelegramCommandMenu(
+        env.TELEGRAM_BOT_TOKEN,
+        env.TELEGRAM_CHAT_ID,
       );
     },
     now() {

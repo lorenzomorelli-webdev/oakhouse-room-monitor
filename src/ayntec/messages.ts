@@ -46,6 +46,21 @@ function entryHeading(entry: ShipmentEntry): string {
   return displayDate(entry.date) + " · " + entry.product;
 }
 
+function latestBatchEntries(snapshot: AyntecSnapshot): ShipmentEntry[] {
+  return Object.values(snapshot.entries).filter(
+    (entry) => entry.date === snapshot.latestDate,
+  );
+}
+
+function formatLatestBatch(snapshot: AyntecSnapshot): string[] {
+  return [
+    "Ultimo batch pubblicato (" + displayDate(snapshot.latestDate) + "):",
+    ...latestBatchEntries(snapshot).map(
+      (entry) => "• " + entry.product + " — " + entry.details,
+    ),
+  ];
+}
+
 export function formatAyntecInitialMessage(
   snapshot: AyntecSnapshot,
   dashboardUrl: string,
@@ -55,7 +70,24 @@ export function formatAyntecInitialMessage(
     "",
     "Ultima data pubblicata: " + displayDate(snapshot.latestDate),
     "Righe monitorate: " + snapshot.entryCount,
+    "",
+    ...formatLatestBatch(snapshot),
+    "",
     "Controllo: ogni 30 minuti",
+    "🔗 " + dashboardUrl,
+  ].join("\n");
+}
+
+export function formatAyntecNewBatchMessage(
+  snapshot: AyntecSnapshot,
+  dashboardUrl: string,
+): string {
+  return [
+    "📦 AYN — nuovo batch pubblicato",
+    "",
+    ...formatLatestBatch(snapshot),
+    "",
+    "Righe monitorate: " + snapshot.entryCount,
     "🔗 " + dashboardUrl,
   ].join("\n");
 }
@@ -123,7 +155,8 @@ export function formatAyntecStatusMessage(
     sections.push(
       "Ultima data pubblicata: " + displayDate(snapshot.latestDate),
       "Righe monitorate: " + snapshot.entryCount,
-      "Ultimo snapshot notificato: " + displayTimestamp(snapshot.checkedAt),
+      formatLatestBatch(snapshot).join("\n"),
+      "Ultimo snapshot salvato: " + displayTimestamp(snapshot.checkedAt),
     );
   }
 
@@ -147,12 +180,12 @@ export function formatAyntecStatusMessage(
 }
 
 export function formatAyntecSyntheticTestMessage(
-  diff: AyntecSnapshotDiff,
+  snapshot: AyntecSnapshot,
   dashboardUrl: string,
 ): string {
   return [
     "🧪 TEST AYN — simulazione controllata",
     "Questa notifica usa l'ultimo snapshot reale, ma nessuna modifica reale è stata salvata.",
-    formatAyntecDiffMessage(diff, dashboardUrl),
+    formatAyntecNewBatchMessage(snapshot, dashboardUrl),
   ].join("\n\n");
 }

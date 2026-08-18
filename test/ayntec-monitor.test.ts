@@ -70,6 +70,19 @@ function createHarness(): Harness {
   };
 }
 
+function withNewShipmentDay(html = AYNTEC_DASHBOARD_HTML): string {
+  return html.replace(
+    "  </div>\n</div>",
+    [
+      "    <p><strong>2026/8/18</strong></p>",
+      "    <p>AYN Thor White Pro: 3001xx--3020xx</p>",
+      "    <p>AYN Thor White Max: 3021xx--3040xx</p>",
+      "  </div>",
+      "</div>",
+    ].join("\n"),
+  );
+}
+
 beforeEach(async () => {
   await Promise.all([
     env.STATE.delete(AYNTEC_SNAPSHOT_KEY),
@@ -111,7 +124,7 @@ describe("runAyntecMonitor", () => {
     ).toMatchObject({ lastSuccessAt: "2026-08-18T16:30:00.000Z" });
   });
 
-  it("notifies a changed shipment range before advancing the snapshot", async () => {
+  it("stores same-day shipment corrections without notifying", async () => {
     const harness = createHarness();
     await runAyntecMonitor(env, harness.deps);
     harness.messages.length = 0;
@@ -120,12 +133,10 @@ describe("runAyntecMonitor", () => {
     );
 
     await expect(runAyntecMonitor(env, harness.deps)).resolves.toMatchObject({
-      status: "notified",
+      status: "unchanged",
     });
 
-    expect(harness.messages.join("\n")).toContain(
-      "2472xx--2600xx → 2472xx--2620xx",
-    );
+    expect(harness.messages).toEqual([]);
     expect(
       await env.STATE.get<AyntecSnapshot>(AYNTEC_SNAPSHOT_KEY, "json"),
     ).toMatchObject({
@@ -137,12 +148,54 @@ describe("runAyntecMonitor", () => {
     });
   });
 
+  it("stores a new same-day row without notifying", async () => {
+    const harness = createHarness();
+    await runAyntecMonitor(env, harness.deps);
+    harness.messages.length = 0;
+    harness.setHtml(
+      AYNTEC_DASHBOARD_HTML.replace(
+        "    <p>AYN Thor Rainbow Max（512）: 2472xx--2600xx</p>",
+        [
+          "    <p>AYN Thor Rainbow Max（512）: 2472xx--2600xx</p>",
+          "    <p>AYN Thor White Pro: 3001xx--3020xx</p>",
+        ].join("\n"),
+      ),
+    );
+
+    await expect(runAyntecMonitor(env, harness.deps)).resolves.toMatchObject({
+      status: "unchanged",
+    });
+
+    expect(harness.messages).toEqual([]);
+    expect(
+      await env.STATE.get<AyntecSnapshot>(AYNTEC_SNAPSHOT_KEY, "json"),
+    ).toMatchObject({
+      latestDate: "2026-08-17",
+      entryCount: 6,
+    });
+  });
+
+  it("notifies when a later shipment day is published", async () => {
+    const harness = createHarness();
+    await runAyntecMonitor(env, harness.deps);
+    harness.messages.length = 0;
+    harness.setHtml(withNewShipmentDay());
+
+    await expect(runAyntecMonitor(env, harness.deps)).resolves.toMatchObject({
+      status: "notified",
+    });
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("nuovo batch pubblicato");
+    expect(text).toContain("18/08/2026");
+    expect(text).toContain("AYN Thor White Pro — 3001xx--3020xx");
+    expect(text).toContain("AYN Thor White Max — 3021xx--3040xx");
+  });
+
   it("does not advance the AYN snapshot when Telegram delivery fails", async () => {
     const harness = createHarness();
     await runAyntecMonitor(env, harness.deps);
-    harness.setHtml(
-      AYNTEC_DASHBOARD_HTML.replace("2472xx--2600xx", "2472xx--2620xx"),
-    );
+    harness.setHtml(withNewShipmentDay());
     harness.setSendFailure(new Error("Telegram send failed with HTTP 500"));
 
     await expect(runAyntecMonitor(env, harness.deps)).resolves.toMatchObject({
@@ -151,17 +204,16 @@ describe("runAyntecMonitor", () => {
     expect(
       await env.STATE.get<AyntecSnapshot>(AYNTEC_SNAPSHOT_KEY, "json"),
     ).toMatchObject({
-      entries: {
-        "2026-08-17|ayn thor rainbow max(512)": {
-          details: "2472xx--2600xx",
-        },
-      },
+      latestDate: "2026-08-17",
     });
 
     harness.setSendFailure(null);
     await expect(runAyntecMonitor(env, harness.deps)).resolves.toMatchObject({
       status: "notified",
     });
+    expect(
+      await env.STATE.get<AyntecSnapshot>(AYNTEC_SNAPSHOT_KEY, "json"),
+    ).toMatchObject({ latestDate: "2026-08-18" });
   });
 
   it("alerts once on the third AYN failure and once on recovery", async () => {
