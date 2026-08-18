@@ -310,7 +310,8 @@ describe("Telegram commands", () => {
     const text = harness.messages.join("\n");
     expect(text).toContain("🧪 TEST AYN");
     expect(text).toContain("nessuna modifica reale");
-    expect(text).toContain("nuovo batch pubblicato");
+    expect(text).toContain("NESSUNA RILEVAZIONE REALE");
+    expect(text).toContain("Batch simulato");
     expect(text).toContain("18/08/2026");
     expect(text).toContain(AYN_DASHBOARD_URL);
     expect(harness.loads()).toBe(0);

@@ -119,11 +119,12 @@ describe("AYN Telegram messages", () => {
       DASHBOARD_URL,
     );
 
-    expect(text).toContain("🧪 TEST AYN — simulazione controllata");
+    expect(text).toContain("🧪 TEST AYN — NESSUNA RILEVAZIONE REALE");
     expect(text).toContain("nessuna modifica reale è stata salvata");
-    expect(text).toContain("nuovo batch pubblicato");
-    expect(text).toContain("Ultimo batch pubblicato (18/08/2026):");
+    expect(text).toContain("Batch simulato (18/08/2026):");
     expect(text).toContain("• AYN Thor White Pro — 3001xx--3020xx");
+    expect(text).not.toContain("nuovo batch pubblicato");
+    expect(text).not.toContain("Ultimo batch pubblicato (18/08/2026)");
     expect(text).toContain(DASHBOARD_URL);
   });
 

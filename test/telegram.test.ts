@@ -106,10 +106,17 @@ describe("syncTelegramCommandMenu", () => {
     ]);
     const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
     const fetcher: FetchLike = async (input, init) => {
+      const method = String(input).split("/").at(-1)!;
       requests.push({
-        method: String(input).split("/").at(-1)!,
+        method,
         body: JSON.parse(String(init?.body)),
       });
+      if (method === "getMyCommands") {
+        return Response.json({ ok: true, result: TELEGRAM_COMMANDS });
+      }
+      if (method === "getChatMenuButton") {
+        return Response.json({ ok: true, result: { type: "commands" } });
+      }
       return Response.json({ ok: true, result: true });
     };
 
@@ -121,10 +128,29 @@ describe("syncTelegramCommandMenu", () => {
 
     expect(requests).toEqual([
       {
+        method: "deleteMyCommands",
+        body: {
+          scope: { type: "chat", chat_id: "123456" },
+        },
+      },
+      {
         method: "setMyCommands",
         body: {
           commands: TELEGRAM_COMMANDS,
           scope: { type: "chat", chat_id: "123456" },
+        },
+      },
+      {
+        method: "getMyCommands",
+        body: {
+          scope: { type: "chat", chat_id: "123456" },
+        },
+      },
+      {
+        method: "deleteMyCommands",
+        body: {
+          scope: { type: "chat", chat_id: "123456" },
+          language_code: "it",
         },
       },
       {
@@ -136,9 +162,30 @@ describe("syncTelegramCommandMenu", () => {
         },
       },
       {
+        method: "getMyCommands",
+        body: {
+          scope: { type: "chat", chat_id: "123456" },
+          language_code: "it",
+        },
+      },
+      {
+        method: "deleteMyCommands",
+        body: {
+          scope: { type: "chat", chat_id: "123456" },
+          language_code: "en",
+        },
+      },
+      {
         method: "setMyCommands",
         body: {
           commands: TELEGRAM_COMMANDS,
+          scope: { type: "chat", chat_id: "123456" },
+          language_code: "en",
+        },
+      },
+      {
+        method: "getMyCommands",
+        body: {
           scope: { type: "chat", chat_id: "123456" },
           language_code: "en",
         },
@@ -150,6 +197,28 @@ describe("syncTelegramCommandMenu", () => {
           menu_button: { type: "commands" },
         },
       },
+      {
+        method: "getChatMenuButton",
+        body: {
+          chat_id: "123456",
+        },
+      },
     ]);
+  });
+
+  it("rejects a synchronization Telegram does not return verbatim", async () => {
+    const fetcher: FetchLike = async (input) => {
+      const method = String(input).split("/").at(-1)!;
+      return Response.json({
+        ok: true,
+        result: method === "getMyCommands"
+          ? TELEGRAM_COMMANDS.slice(0, 3)
+          : true,
+      });
+    };
+
+    await expect(
+      syncTelegramCommandMenu("secret-token", "123456", fetcher),
+    ).rejects.toThrow("Telegram command menu verification failed");
   });
 });

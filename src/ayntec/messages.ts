@@ -184,8 +184,15 @@ export function formatAyntecSyntheticTestMessage(
   dashboardUrl: string,
 ): string {
   return [
-    "🧪 TEST AYN — simulazione controllata",
+    "🧪 TEST AYN — NESSUNA RILEVAZIONE REALE",
     "Questa notifica usa l'ultimo snapshot reale, ma nessuna modifica reale è stata salvata.",
-    formatAyntecNewBatchMessage(snapshot, dashboardUrl),
+    [
+      "📦 Batch simulato (" + displayDate(snapshot.latestDate) + "):",
+      ...latestBatchEntries(snapshot).map(
+        (entry) => "• " + entry.product + " — " + entry.details,
+      ),
+      "",
+      "🔗 " + dashboardUrl,
+    ].join("\n"),
   ].join("\n\n");
 }

@@ -2,18 +2,19 @@ import type { FetchLike } from "./source";
 export { TELEGRAM_COMMANDS } from "./bot-commands";
 import { TELEGRAM_COMMANDS } from "./bot-commands";
 
-interface TelegramResponse {
+interface TelegramResponse<Result = unknown> {
   ok: boolean;
+  result?: Result;
 }
 
 const TELEGRAM_TIMEOUT_MS = 15_000;
 
-async function callTelegramMethod(
+async function callTelegramMethod<Result = unknown>(
   token: string,
   method: string,
   body: Record<string, unknown>,
   fetcher: FetchLike,
-): Promise<void> {
+): Promise<Result | undefined> {
   const endpoint = "https://api.telegram.org/bot" + token + "/" + method;
   let response: Response;
   try {
@@ -27,9 +28,9 @@ async function callTelegramMethod(
     throw new Error("Telegram request failed");
   }
 
-  let payload: TelegramResponse = { ok: false };
+  let payload: TelegramResponse<Result> = { ok: false };
   try {
-    payload = await response.json<TelegramResponse>();
+    payload = await response.json<TelegramResponse<Result>>();
   } catch {
     payload = { ok: false };
   }
@@ -39,6 +40,20 @@ async function callTelegramMethod(
   if (!payload.ok) {
     throw new Error("Telegram rejected the request");
   }
+  return payload.result;
+}
+
+function hasExpectedCommands(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== TELEGRAM_COMMANDS.length) {
+    return false;
+  }
+  return TELEGRAM_COMMANDS.every((expected, index) => {
+    const actual: unknown = value[index];
+    return typeof actual === "object" && actual !== null &&
+      "command" in actual && actual.command === expected.command &&
+      "description" in actual &&
+      actual.description === expected.description;
+  });
 }
 
 export async function sendTelegramMessages(
@@ -80,16 +95,34 @@ export async function syncTelegramCommandMenu(
 ): Promise<void> {
   const scope = { type: "chat", chat_id: chatId };
   for (const languageCode of [undefined, "it", "en"] as const) {
+    const scopedLanguage = {
+      scope,
+      ...(languageCode ? { language_code: languageCode } : {}),
+    };
+    await callTelegramMethod(
+      token,
+      "deleteMyCommands",
+      scopedLanguage,
+      fetcher,
+    );
     await callTelegramMethod(
       token,
       "setMyCommands",
       {
         commands: TELEGRAM_COMMANDS,
-        scope,
-        ...(languageCode ? { language_code: languageCode } : {}),
+        ...scopedLanguage,
       },
       fetcher,
     );
+    const persistedCommands = await callTelegramMethod(
+      token,
+      "getMyCommands",
+      scopedLanguage,
+      fetcher,
+    );
+    if (!hasExpectedCommands(persistedCommands)) {
+      throw new Error("Telegram command menu verification failed");
+    }
   }
   await callTelegramMethod(
     token,
@@ -100,4 +133,18 @@ export async function syncTelegramCommandMenu(
     },
     fetcher,
   );
+  const menuButton = await callTelegramMethod(
+    token,
+    "getChatMenuButton",
+    { chat_id: chatId },
+    fetcher,
+  );
+  if (
+    typeof menuButton !== "object" ||
+    menuButton === null ||
+    !("type" in menuButton) ||
+    menuButton.type !== "commands"
+  ) {
+    throw new Error("Telegram menu button verification failed");
+  }
 }
