@@ -35,6 +35,7 @@ describe("AYN Telegram messages", () => {
       "• AYN Thor Rainbow Max(512) — 2472xx--2600xx",
     );
     expect(text).not.toContain("2448xx--2471xx");
+    expect(text).toContain("Controllo: ogni ora");
     expect(text).toContain(DASHBOARD_URL);
   });
 
@@ -94,7 +95,7 @@ describe("AYN Telegram messages", () => {
     expect(text).toContain("Ultimo batch pubblicato (17/08/2026):");
     expect(text).toContain("• AYN Thor Black Pro — 2471xx--2493xx");
     expect(text).toContain("• AYN Thor Rainbow Pro — 2502xx--2529xx");
-    expect(text).toContain("Controllo: ogni 30 minuti");
+    expect(text).toContain("Controllo: ogni ora");
     expect(text).toContain(DASHBOARD_URL);
   });
 

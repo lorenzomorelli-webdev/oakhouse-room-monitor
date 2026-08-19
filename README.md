@@ -6,7 +6,7 @@ change alerts to one private Telegram chat:
 - [GRAN KOBE room availability](https://www.oakhouse.jp/eng/house/1142#room),
   checked every minute;
 - [AYN Shipping Dashboard](https://www.ayntec.com/pages/shipment-dashboard),
-  checked every 30 minutes.
+  checked every hour.
 
 The Worker runs entirely on Cloudflare after deployment. No computer or
 always-on server is required.
@@ -35,7 +35,7 @@ always-on server is required.
 ```text
 Cloudflare Cron
   ├─ every minute ─────► Oakhouse parser ──► Oakhouse KV snapshot
-  └─ every 30 minutes ─► AYN parser ───────► AYN KV snapshot
+  └─ every hour ───────► AYN parser ───────► AYN KV snapshot
                                               │
                          relevant change ───┴─► Telegram
 ```
@@ -133,7 +133,7 @@ Set the local trigger configuration to:
 
 ```json
 "triggers": {
-  "crons": ["* * * * *", "*/30 * * * *"]
+  "crons": ["* * * * *", "0 * * * *"]
 }
 ```
 
@@ -189,7 +189,7 @@ Trigger either scheduled route locally:
 
 ```bash
 curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
-curl "http://localhost:8787/__scheduled?cron=*/30+*+*+*+*"
+curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"
 ```
 
 Useful checks:
@@ -222,9 +222,9 @@ TTL. A failed notification never advances the corresponding data snapshot.
 
 With the default schedules, the Worker performs approximately:
 
-- 1,488 invocations per day: 1,440 Oakhouse and 48 AYN;
-- 2,976 KV reads per day under normal operation;
-- 288 regular Oakhouse health-heartbeat writes and 48 regular AYN heartbeat
+- 1,464 invocations per day: 1,440 Oakhouse and 24 AYN;
+- 2,928 KV reads per day under normal operation;
+- 288 regular Oakhouse health-heartbeat writes and 24 regular AYN heartbeat
   writes per day, plus initial baselines and real state transitions.
 
 Pricing and quotas can change. Check the current

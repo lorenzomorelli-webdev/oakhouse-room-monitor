@@ -62,7 +62,7 @@ function createHarness(): Harness {
       },
       now() {
         const checkedAt = new Date(now).toISOString();
-        now += 30 * 60_000;
+        now += 60 * 60_000;
         return checkedAt;
       },
       log() {},
@@ -110,7 +110,7 @@ describe("runAyntecMonitor", () => {
     expect(harness.messages).toEqual([]);
   });
 
-  it("refreshes the success heartbeat on every 30-minute run", async () => {
+  it("refreshes the success heartbeat on every hourly run", async () => {
     const harness = createHarness();
 
     await runAyntecMonitor(env, harness.deps);
@@ -121,7 +121,7 @@ describe("runAyntecMonitor", () => {
     await runAyntecMonitor(env, harness.deps);
     expect(
       await env.STATE.get<HealthState>(AYNTEC_HEALTH_KEY, "json"),
-    ).toMatchObject({ lastSuccessAt: "2026-08-18T16:30:00.000Z" });
+    ).toMatchObject({ lastSuccessAt: "2026-08-18T17:00:00.000Z" });
   });
 
   it("stores same-day shipment corrections without notifying", async () => {

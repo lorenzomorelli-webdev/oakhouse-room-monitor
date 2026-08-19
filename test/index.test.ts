@@ -63,7 +63,7 @@ describe("scheduled Worker entry point", () => {
     expect(received).toEqual([env]);
   });
 
-  it("routes the 30-minute Cron exclusively to the AYN monitor", async () => {
+  it("routes the hourly Cron exclusively to the AYN monitor", async () => {
     const oakhouseRuns: MonitorEnv[] = [];
     const ayntecRuns: WorkerEnv[] = [];
     const oakhouseRunner: MonitorRunner = async (receivedEnv) => {
@@ -103,7 +103,7 @@ describe("scheduled Worker entry point", () => {
     await worker.scheduled(
       createScheduledController({
         scheduledTime: new Date("2026-08-17T17:30:00.000Z"),
-        cron: "*/30 * * * *",
+        cron: "0 * * * *",
       }),
       env,
       createExecutionContext(),
@@ -151,7 +151,7 @@ describe("scheduled Worker entry point", () => {
     await worker.scheduled(
       createScheduledController({
         scheduledTime: new Date("2026-08-17T18:00:00.000Z"),
-        cron: "0 * * * *",
+        cron: "15 * * * *",
       }),
       env,
       createExecutionContext(),

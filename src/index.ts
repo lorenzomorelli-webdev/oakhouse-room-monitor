@@ -39,7 +39,7 @@ export interface OakhouseWorker extends ScheduledWorker {
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 export const OAKHOUSE_CRON = "* * * * *";
-export const AYNTEC_CRON = "*/30 * * * *";
+export const AYNTEC_CRON = "0 * * * *";
 
 function secretsMatch(expected: string, received: string | null): boolean {
   if (!expected || received === null || expected.length !== received.length) {

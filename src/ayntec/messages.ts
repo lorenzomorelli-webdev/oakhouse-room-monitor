@@ -73,7 +73,7 @@ export function formatAyntecInitialMessage(
     "",
     ...formatLatestBatch(snapshot),
     "",
-    "Controllo: ogni 30 minuti",
+    "Controllo: ogni ora",
     "🔗 " + dashboardUrl,
   ].join("\n");
 }
@@ -160,7 +160,7 @@ export function formatAyntecStatusMessage(
     );
   }
 
-  sections.push("Controllo: ogni 30 minuti");
+  sections.push("Controllo: ogni ora");
   sections.push(
     hasFailures
       ? "Monitor schedulato: " + health.consecutiveFailures +
