@@ -107,6 +107,7 @@ function createHarness(
   messages: string[];
   logs: Array<Record<string, unknown>>;
   loads: () => number;
+  fxLoads: () => number;
   menuSyncs: () => number;
   writes: StateHarness["writes"];
   setRawState(key: string, value: string): void;
@@ -122,6 +123,7 @@ function createHarness(
   const messages: string[] = [];
   const logs: Array<Record<string, unknown>> = [];
   let loadCount = 0;
+  let fxLoadCount = 0;
   let menuSyncCount = 0;
   return {
     env: {
@@ -145,6 +147,14 @@ function createHarness(
         loadCount += 1;
         return BASELINE_HTML;
       },
+      async loadFxSnapshot() {
+        fxLoadCount += 1;
+        return parseFxTimeSeries(
+          structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
+          FX_API_URL,
+          "2026-08-20T07:00:00.000Z",
+        );
+      },
       async sendMessages(chunks) {
         messages.push(...chunks);
       },
@@ -161,6 +171,7 @@ function createHarness(
     messages,
     logs,
     loads: () => loadCount,
+    fxLoads: () => fxLoadCount,
     menuSyncs: () => menuSyncCount,
     writes: state.writes,
     setRawState: state.setRaw,
@@ -394,27 +405,18 @@ describe("Telegram commands", () => {
     expect(harness.writes).toEqual([]);
   });
 
-  it("sends a marked, persisted simulation for /test_yen", async () => {
-    const fxSnapshot = parseFxTimeSeries(
-      structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
-      FX_API_URL,
-      "2026-08-20T07:00:00.000Z",
-    );
-    const harness = createHarness(
-      undefined,
-      HEALTHY_STATE,
-      undefined,
-      HEALTHY_STATE,
-      fxSnapshot,
-    );
+  it("fetches a real rate for /test_yen without persisting it", async () => {
+    const harness = createHarness();
 
     await handleTelegramUpdate(update("/test_yen"), harness.env, harness.deps);
 
     const text = harness.messages.join("\n");
     expect(text).toContain("🧪 TEST EUR/JPY");
+    expect(text).toContain("appena letto");
     expect(text).toContain("nessuna rilevazione reale");
     expect(text).toContain("1 EUR = 185,4255 JPY");
     expect(harness.loads()).toBe(0);
+    expect(harness.fxLoads()).toBe(1);
     expect(harness.writes).toEqual([]);
   });
 

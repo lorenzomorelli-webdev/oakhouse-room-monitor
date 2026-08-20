@@ -355,10 +355,10 @@ async function runFxTest(
   env: WorkerEnv,
   deps: MonitorDependencies,
 ): Promise<void> {
-  const snapshot = await readFxSnapshot(env);
-  if (snapshot === null) {
-    throw new Error("Persisted FX snapshot is not available");
+  if (!deps.loadFxSnapshot) {
+    throw new Error("Live FX test is not available");
   }
+  const snapshot = await deps.loadFxSnapshot();
   await sendText(
     deps,
     formatFxSyntheticTestMessage(snapshot, env.FX_PAGE_URL),

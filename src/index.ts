@@ -12,7 +12,7 @@ import {
   type FxMonitorRunner,
 } from "./fx/monitor";
 import { isFxDigestDue } from "./fx/schedule";
-import type { MonitorEnv, WorkerEnv } from "./model";
+import type { WorkerEnv } from "./model";
 import {
   handleTelegramUpdate,
   type TelegramUpdateHandler,
@@ -24,7 +24,7 @@ import {
   type MonitorRunner,
 } from "./monitor";
 
-type DependenciesFactory = (env: MonitorEnv) => MonitorDependencies;
+type DependenciesFactory = (env: WorkerEnv) => MonitorDependencies;
 type AyntecDependenciesFactory = (
   env: AyntecMonitorEnv,
 ) => MonitorDependencies;

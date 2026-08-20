@@ -56,10 +56,11 @@ describe("FX messages", () => {
     expect(text).toContain("Riepiloghi: 09:00, 13:00, 17:00 e 21:00");
   });
 
-  it("marks a manual test clearly without changing or inventing rates", () => {
+  it("marks a live manual test clearly without saving or inventing rates", () => {
     const text = formatFxSyntheticTestMessage(snapshot, PAGE_URL);
 
     expect(text).toContain("🧪 TEST EUR/JPY");
+    expect(text).toContain("appena letto");
     expect(text).toContain("nessuna rilevazione reale");
     expect(text).toContain("1 EUR = 185,4255 JPY");
     expect(text).toContain(PAGE_URL);

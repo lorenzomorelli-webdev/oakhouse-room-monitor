@@ -1,4 +1,7 @@
 import { diffSnapshots } from "./diff";
+import type { FxSnapshot } from "./fx/model";
+import { parseFxTimeSeries } from "./fx/parser";
+import { fetchFxTimeSeries } from "./fx/source";
 import {
   HEALTHY_STATE,
   HEALTH_KEY,
@@ -8,6 +11,7 @@ import {
   type MonitorEnv,
   type Snapshot,
   type SnapshotDiff,
+  type WorkerEnv,
 } from "./model";
 import {
   formatDiffMessage,
@@ -39,6 +43,7 @@ export interface RunResult {
 
 export interface MonitorDependencies {
   loadHtml(url: string, timeoutMs: number): Promise<string>;
+  loadFxSnapshot?(): Promise<FxSnapshot>;
   sendMessages(messages: string[]): Promise<void>;
   syncCommandMenu?(): Promise<void>;
   now(): string;
@@ -211,10 +216,22 @@ async function recordFailure(
 }
 
 export function createProductionDependencies(
-  env: MonitorEnv,
+  env: WorkerEnv,
 ): MonitorDependencies {
   return {
     loadHtml: fetchOakhouseHtml,
+    async loadFxSnapshot() {
+      if (!env.TWELVE_DATA_API_KEY.trim()) {
+        throw new Error("TWELVE_DATA_API_KEY is required");
+      }
+      const checkedAt = new Date().toISOString();
+      const payload = await fetchFxTimeSeries(
+        env.FX_API_URL,
+        env.TWELVE_DATA_API_KEY,
+        positiveInteger(env.FETCH_TIMEOUT_MS, "FETCH_TIMEOUT_MS"),
+      );
+      return parseFxTimeSeries(payload, env.FX_API_URL, checkedAt);
+    },
     sendMessages(messages) {
       return sendTelegramMessages(
         env.TELEGRAM_BOT_TOKEN,

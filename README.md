@@ -61,8 +61,8 @@ Telegram commands do not fetch any source. `/status` reads all persisted
 snapshots and health states; its AYN section also prints every row from the
 latest batch. `/yen` prints the last persisted FX digest. `/test` makes a
 synthetic Oakhouse diff, `/test_ayntec` simulates a batch on the following
-calendar day, and `/test_yen` replays the saved rate with a prominent test
-label. No simulation writes to KV.
+calendar day, and `/test_yen` reads the live provider and sends the result with
+a prominent test label. No test command writes to KV.
 
 ## Security model
 
@@ -197,7 +197,7 @@ status - Show all monitor states
 yen - Show the latest saved EUR/JPY digest
 test - Send a safe synthetic Oakhouse alert
 test_ayntec - Simulate an AYN batch on the next calendar day
-test_yen - Replay the saved EUR/JPY digest as a test
+test_yen - Fetch and send a live EUR/JPY digest as a test
 help - Show the command guide and source links
 ```
 

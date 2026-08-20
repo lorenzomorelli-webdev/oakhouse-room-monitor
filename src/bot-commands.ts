@@ -26,7 +26,7 @@ export const TELEGRAM_COMMANDS: TelegramBotCommand[] = [
   },
   {
     command: "test_yen",
-    description: "Simula un riepilogo EUR/JPY",
+    description: "Verifica live il cambio EUR/JPY",
   },
   {
     command: "help",

@@ -87,7 +87,7 @@ export function formatFxSyntheticTestMessage(
 ): string {
   return [
     "🧪 TEST EUR/JPY — simulazione controllata",
-    "Questo messaggio usa l'ultimo cambio reale salvato; nessuna rilevazione reale è stata aggiunta.",
+    "Questo messaggio usa il cambio reale appena letto; nessuna rilevazione reale è stata salvata.",
     formatFxDigestMessage(snapshot, pageUrl),
   ].join("\n\n");
 }
