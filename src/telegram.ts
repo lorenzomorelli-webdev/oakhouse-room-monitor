@@ -93,35 +93,40 @@ export async function syncTelegramCommandMenu(
   chatId: string,
   fetcher: FetchLike = fetch,
 ): Promise<void> {
-  const scope = { type: "chat", chat_id: chatId };
-  for (const languageCode of [undefined, "it", "en"] as const) {
-    const scopedLanguage = {
-      scope,
-      ...(languageCode ? { language_code: languageCode } : {}),
-    };
-    await callTelegramMethod(
-      token,
-      "deleteMyCommands",
-      scopedLanguage,
-      fetcher,
-    );
-    await callTelegramMethod(
-      token,
-      "setMyCommands",
-      {
-        commands: TELEGRAM_COMMANDS,
-        ...scopedLanguage,
-      },
-      fetcher,
-    );
-    const persistedCommands = await callTelegramMethod(
-      token,
-      "getMyCommands",
-      scopedLanguage,
-      fetcher,
-    );
-    if (!hasExpectedCommands(persistedCommands)) {
-      throw new Error("Telegram command menu verification failed");
+  const scopes = [
+    { type: "default" },
+    { type: "chat", chat_id: chatId },
+  ];
+  for (const scope of scopes) {
+    for (const languageCode of [undefined, "it", "en"] as const) {
+      const scopedLanguage = {
+        scope,
+        ...(languageCode ? { language_code: languageCode } : {}),
+      };
+      await callTelegramMethod(
+        token,
+        "deleteMyCommands",
+        scopedLanguage,
+        fetcher,
+      );
+      await callTelegramMethod(
+        token,
+        "setMyCommands",
+        {
+          commands: TELEGRAM_COMMANDS,
+          ...scopedLanguage,
+        },
+        fetcher,
+      );
+      const persistedCommands = await callTelegramMethod(
+        token,
+        "getMyCommands",
+        scopedLanguage,
+        fetcher,
+      );
+      if (!hasExpectedCommands(persistedCommands)) {
+        throw new Error("Telegram command menu verification failed");
+      }
     }
   }
   await callTelegramMethod(

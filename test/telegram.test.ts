@@ -96,7 +96,7 @@ describe("sendTelegramMessages", () => {
 });
 
 describe("syncTelegramCommandMenu", () => {
-  it("defines all commands for the exact chat and forces its menu button", async () => {
+  it("defines all commands globally and for the exact chat, then forces its menu button", async () => {
     expect(TELEGRAM_COMMANDS.map(({ command }) => command)).toEqual([
       "start",
       "status",
@@ -129,6 +129,69 @@ describe("syncTelegramCommandMenu", () => {
     );
 
     expect(requests).toEqual([
+      {
+        method: "deleteMyCommands",
+        body: {
+          scope: { type: "default" },
+        },
+      },
+      {
+        method: "setMyCommands",
+        body: {
+          commands: TELEGRAM_COMMANDS,
+          scope: { type: "default" },
+        },
+      },
+      {
+        method: "getMyCommands",
+        body: {
+          scope: { type: "default" },
+        },
+      },
+      {
+        method: "deleteMyCommands",
+        body: {
+          scope: { type: "default" },
+          language_code: "it",
+        },
+      },
+      {
+        method: "setMyCommands",
+        body: {
+          commands: TELEGRAM_COMMANDS,
+          scope: { type: "default" },
+          language_code: "it",
+        },
+      },
+      {
+        method: "getMyCommands",
+        body: {
+          scope: { type: "default" },
+          language_code: "it",
+        },
+      },
+      {
+        method: "deleteMyCommands",
+        body: {
+          scope: { type: "default" },
+          language_code: "en",
+        },
+      },
+      {
+        method: "setMyCommands",
+        body: {
+          commands: TELEGRAM_COMMANDS,
+          scope: { type: "default" },
+          language_code: "en",
+        },
+      },
+      {
+        method: "getMyCommands",
+        body: {
+          scope: { type: "default" },
+          language_code: "en",
+        },
+      },
       {
         method: "deleteMyCommands",
         body: {
