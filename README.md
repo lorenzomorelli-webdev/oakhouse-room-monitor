@@ -1,18 +1,21 @@
-# Oakhouse + AYN Telegram Monitor
+# Oakhouse + AYN + EUR/JPY Telegram Monitor
 
-An unofficial Cloudflare Worker that watches two public pages and sends useful
-change alerts to one private Telegram chat:
+An unofficial Cloudflare Worker that watches two public pages, tracks EUR/JPY,
+and sends useful updates to one private Telegram chat:
 
 - [GRAN KOBE room availability](https://www.oakhouse.jp/eng/house/1142#room),
   checked every minute;
 - [AYN Shipping Dashboard](https://www.ayntec.com/pages/shipment-dashboard),
-  checked every hour.
+  checked every hour;
+- EUR/JPY, summarized at 09:00, 13:00, 17:00, and 21:00 Europe/Rome on
+  weekdays, with a direct link to the
+  [Il Sole 24 Ore chart](https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX).
 
 The Worker runs entirely on Cloudflare after deployment. No computer or
 always-on server is required.
 
 > This project is not affiliated with, endorsed by, or operated by Oakhouse or
-> AYN. It monitors public information only and does not automate login,
+> AYN, Twelve Data, or Il Sole 24 Ore. It monitors public information only and does not automate login,
 > reservations, purchases, or other actions.
 
 ## Features
@@ -21,14 +24,18 @@ always-on server is required.
 - alerts for AYN only when a newer shipment date appears and includes every row
   in that latest batch;
 - silently stores AYN corrections made within the already-known latest date;
+- sends four weekday EUR/JPY summaries with the current rate, daily movement,
+  previous close, daily range, and trailing one-year range/performance;
 - includes a concise recap and a direct page link in every alert;
-- sends an initial baseline, then remains silent until meaningful data changes;
+- keeps Oakhouse and AYN silent after their baselines until meaningful data
+  changes, while FX sends each scheduled digest;
 - reports repeated fetch or parsing failures and announces recovery;
 - preserves the last delivered snapshot if fetching, parsing, KV, or Telegram
   delivery fails;
-- exposes private `/status`, `/test`, `/test_ayntec`, `/help`, and `/start`
-  Telegram commands;
-- keeps the two monitors isolated through separate Cron routes and KV keys.
+- exposes private `/status`, `/yen`, `/test`, `/test_ayntec`, `/test_yen`,
+  `/help`, and `/start` Telegram commands;
+- keeps all three monitors isolated through separate execution paths and KV
+  keys.
 
 ## How it works
 
@@ -36,28 +43,33 @@ always-on server is required.
 Cloudflare Cron
   ├─ every minute ─────► Oakhouse parser ──► Oakhouse KV snapshot
   └─ every hour ───────► AYN parser ───────► AYN KV snapshot
-                                              │
-                         relevant change ───┴─► Telegram
+          └─ 09/13/17/21 Europe/Rome, Mon–Fri
+                         ► Twelve Data ─────► EUR/JPY KV snapshot
+                                                    │
+                         alert or digest ──────────┴─► Telegram
 ```
 
 Oakhouse is parsed from its server-rendered room table. AYN is fetched through
 Shopify's compact `main-page` section endpoint, while notifications link to the
 normal dashboard page. Oakhouse alerts on tracked room changes. AYN alerts only
 when its maximum published shipment date moves forward; same-day corrections
-refresh the stored snapshot without sending noise.
+refresh the stored snapshot without sending noise. EUR/JPY uses Twelve Data's
+daily time series and sends a text-only digest; the linked Il Sole 24 Ore page
+provides the chart on demand.
 
-Telegram commands do not scrape either website. `/status` reads both persisted
-snapshots and their health heartbeats; its AYN section also prints every row
-from the latest batch. `/test` makes a synthetic Oakhouse diff, while
-`/test_ayntec` simulates a batch on the following calendar day. Neither
-simulation writes to KV.
+Telegram commands do not fetch any source. `/status` reads all persisted
+snapshots and health states; its AYN section also prints every row from the
+latest batch. `/yen` prints the last persisted FX digest. `/test` makes a
+synthetic Oakhouse diff, `/test_ayntec` simulates a batch on the following
+calendar day, and `/test_yen` replays the saved rate with a prominent test
+label. No simulation writes to KV.
 
 ## Security model
 
 - Telegram webhook requests must include `TELEGRAM_WEBHOOK_SECRET`.
 - Updates are accepted only from the configured private `TELEGRAM_CHAT_ID`.
-- Bot tokens, chat IDs, webhook secrets, and the production Wrangler config are
-  ignored by Git.
+- Bot tokens, chat IDs, webhook secrets, the Twelve Data API key, and the
+  production Wrangler config are ignored by Git.
 - Cloudflare secrets are stored with `wrangler secret put`, not as plaintext
   Worker variables.
 - Unknown routes return `404`; the webhook accepts authenticated `POST`
@@ -73,7 +85,9 @@ only an empty secret example and a reusable Wrangler template.
 - Node.js 22 or later;
 - [pnpm](https://pnpm.io/);
 - a Cloudflare account with Workers and Workers KV;
-- a dedicated Telegram bot and a private chat with that bot.
+- a dedicated Telegram bot and a private chat with that bot;
+- a [Twelve Data API key](https://twelvedata.com/) (the free tier is ample for
+  four weekday requests).
 
 ## Setup
 
@@ -127,7 +141,20 @@ pnpm exec wrangler secret put TELEGRAM_WEBHOOK_SECRET
 Do not paste real values into `wrangler.jsonc`, source files, issues, or commit
 messages.
 
-### 4. Enable both Cron Triggers and deploy
+### 4. Configure the EUR/JPY provider
+
+Create a Twelve Data API key, then store it as a Cloudflare secret:
+
+```bash
+pnpm exec wrangler secret put TWELVE_DATA_API_KEY
+```
+
+The Worker requests `EUR/JPY` daily candles only at 09:00, 13:00, 17:00, and
+21:00 in `Europe/Rome`, Monday through Friday. Daylight-saving changes are
+handled automatically. The reported value is indicative; a bank or exchange
+may apply a spread and commissions.
+
+### 5. Enable both Cron Triggers and deploy
 
 Set the local trigger configuration to:
 
@@ -146,7 +173,7 @@ pnpm run deploy
 
 Wrangler prints the `workers.dev` URL after deployment.
 
-### 5. Register the Telegram webhook and command menu
+### 6. Register the Telegram webhook and command menu
 
 Call Telegram's [`setWebhook`](https://core.telegram.org/bots/api#setwebhook)
 method with:
@@ -166,15 +193,18 @@ configured private chat and activates the native command menu button:
 
 ```text
 start - Start the bot and show its guide
-status - Show both monitor states
+status - Show all monitor states
+yen - Show the latest saved EUR/JPY digest
 test - Send a safe synthetic Oakhouse alert
 test_ayntec - Simulate an AYN batch on the next calendar day
+test_yen - Replay the saved EUR/JPY digest as a test
 help - Show the command guide and source links
 ```
 
-Send `/help` once, then `/status`, `/test`, and `/test_ayntec` to verify the
-complete webhook-to-Worker-to-Telegram flow. Both test commands are clearly
-labelled as simulations and never update persisted snapshots.
+Send `/help` once, then `/status`, `/yen`, `/test`, `/test_ayntec`, and
+`/test_yen` to verify the complete webhook-to-Worker-to-Telegram flow. Test
+commands are clearly labelled as simulations and never update persisted
+snapshots.
 
 ## Local development
 
@@ -202,13 +232,15 @@ pnpm exec wrangler tail oakhouse-room-monitor --format pretty
 
 ## Persistence and delivery semantics
 
-Workers KV stores four versioned records:
+Workers KV stores six versioned records:
 
 - `house:1142:snapshot:v1`: last valid Oakhouse snapshot delivered;
 - `house:1142:health:v1`: Oakhouse failure and heartbeat state;
 - `ayntec:shipment-dashboard:snapshot:v1`: last valid AYN snapshot, including
   silently stored same-day corrections;
-- `ayntec:shipment-dashboard:health:v1`: AYN failure and heartbeat state.
+- `ayntec:shipment-dashboard:health:v1`: AYN failure and heartbeat state;
+- `fx:eurjpy:snapshot:v1`: last successfully delivered EUR/JPY digest;
+- `fx:eurjpy:health:v1`: EUR/JPY failure and heartbeat state.
 
 Notifications use **at-least-once delivery**. If Telegram times out after a
 partial multi-message delivery, a later run may repeat part of the alert. The
@@ -223,13 +255,16 @@ TTL. A failed notification never advances the corresponding data snapshot.
 With the default schedules, the Worker performs approximately:
 
 - 1,464 invocations per day: 1,440 Oakhouse and 24 AYN;
-- 2,928 KV reads per day under normal operation;
+- 2,928 KV reads per day, plus 8 FX reads on weekdays;
 - 288 regular Oakhouse health-heartbeat writes and 24 regular AYN heartbeat
-  writes per day, plus initial baselines and real state transitions.
+  writes per day, plus 8 FX writes on weekdays, initial baselines, and real
+  state transitions;
+- four Twelve Data calls and four FX Telegram digests per weekday.
 
 Pricing and quotas can change. Check the current
 [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
-and [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/)
+and [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/),
+plus [Twelve Data pricing](https://twelvedata.com/pricing/),
 before deploying.
 
 [Oakhouse states](https://www.oakhouse.jp/eng/helpcenter) that vacancy
@@ -239,9 +274,11 @@ a dashboard that changes much less frequently.
 
 ## Limitations and responsible use
 
-- A material markup change on either source can require parser and fixture
-  updates.
+- A material markup change on Oakhouse or AYN, or a Twelve Data response-schema
+  change, can require parser and fixture updates.
 - Alerts are informational and do not guarantee continued availability.
+- FX values are indicative market data, not financial advice or a guaranteed
+  executable exchange rate.
 - Review each target site's current terms and `robots.txt`, use identifiable
   user agents, and keep request volume reasonable.
 - Do not extend this project to bypass authentication, automate reservations

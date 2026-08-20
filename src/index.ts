@@ -4,6 +4,14 @@ import {
   type AyntecMonitorEnv,
   type AyntecMonitorRunner,
 } from "./ayntec/monitor";
+import {
+  createFxProductionDependencies,
+  runFxMonitor,
+  type FxMonitorDependencies,
+  type FxMonitorEnv,
+  type FxMonitorRunner,
+} from "./fx/monitor";
+import { isFxDigestDue } from "./fx/schedule";
 import type { MonitorEnv, WorkerEnv } from "./model";
 import {
   handleTelegramUpdate,
@@ -20,6 +28,9 @@ type DependenciesFactory = (env: MonitorEnv) => MonitorDependencies;
 type AyntecDependenciesFactory = (
   env: AyntecMonitorEnv,
 ) => MonitorDependencies;
+type FxDependenciesFactory = (
+  env: FxMonitorEnv,
+) => FxMonitorDependencies;
 
 export interface ScheduledWorker {
   scheduled(
@@ -59,7 +70,33 @@ export function createWorker(
   ayntecRunner: AyntecMonitorRunner = runAyntecMonitor,
   ayntecDependenciesFactory: AyntecDependenciesFactory =
     createAyntecProductionDependencies,
+  fxRunner: FxMonitorRunner = runFxMonitor,
+  fxDependenciesFactory: FxDependenciesFactory =
+    createFxProductionDependencies,
 ): OakhouseWorker {
+  async function runScheduled(
+    monitor: "oakhouse" | "ayntec" | "fx",
+    execute: () => Promise<import("./monitor").RunResult>,
+  ): Promise<void> {
+    try {
+      const result = await execute();
+      console.log(
+        JSON.stringify({
+          event: "scheduled_run_finished",
+          monitor,
+          status: result.status,
+          checkedAt: result.checkedAt,
+          detail: result.detail,
+        }),
+      );
+    } catch {
+      console.error(JSON.stringify({
+        event: "scheduled_run_failed",
+        monitor,
+      }));
+    }
+  }
+
   return {
     async fetch(request, env, _context) {
       if (new URL(request.url).pathname !== TELEGRAM_WEBHOOK_PATH) {
@@ -99,30 +136,33 @@ export function createWorker(
       return new Response(null, { status: 204 });
     },
     async scheduled(controller, env, _context) {
-      let monitor: "oakhouse" | "ayntec";
-      let result;
       if (controller.cron === OAKHOUSE_CRON) {
-        monitor = "oakhouse";
-        result = await runner(env, dependenciesFactory(env));
+        await runScheduled(
+          "oakhouse",
+          () => runner(env, dependenciesFactory(env)),
+        );
       } else if (controller.cron === AYNTEC_CRON) {
-        monitor = "ayntec";
-        result = await ayntecRunner(env, ayntecDependenciesFactory(env));
+        const runs = [
+          runScheduled(
+            "ayntec",
+            () => ayntecRunner(env, ayntecDependenciesFactory(env)),
+          ),
+        ];
+        if (isFxDigestDue(new Date(controller.scheduledTime))) {
+          runs.push(
+            runScheduled(
+              "fx",
+              () => fxRunner(env, fxDependenciesFactory(env)),
+            ),
+          );
+        }
+        await Promise.all(runs);
       } else {
         console.warn(JSON.stringify({
           event: "scheduled_cron_ignored",
           cron: controller.cron,
         }));
-        return;
       }
-      console.log(
-        JSON.stringify({
-          event: "scheduled_run_finished",
-          monitor,
-          status: result.status,
-          checkedAt: result.checkedAt,
-          detail: result.detail,
-        }),
-      );
     },
   };
 }

@@ -12,6 +12,17 @@ import type {
 import { parseAyntecSnapshotState } from "./ayntec/state";
 import { diffSnapshots } from "./diff";
 import {
+  formatFxDigestMessage,
+  formatFxStatusMessage,
+  formatFxSyntheticTestMessage,
+} from "./fx/messages";
+import {
+  FX_HEALTH_KEY,
+  FX_SNAPSHOT_KEY,
+  type FxSnapshot,
+} from "./fx/model";
+import { parseFxSnapshotState } from "./fx/state";
+import {
   AVAILABLE_STATUS,
   HEALTHY_STATE,
   HEALTH_KEY,
@@ -49,6 +60,8 @@ type TelegramCommand =
   | "/status"
   | "/test"
   | "/test_ayntec"
+  | "/yen"
+  | "/test_yen"
   | "/unknown";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -83,6 +96,8 @@ function parseCommand(text: string): TelegramCommand {
     "/status",
     "/test",
     "/test_ayntec",
+    "/yen",
+    "/test_yen",
   ].includes(command)
     ? command as TelegramCommand
     : "/unknown";
@@ -129,6 +144,29 @@ async function readAyntecSnapshot(
 
 async function readAyntecHealth(env: WorkerEnv): Promise<HealthState> {
   const raw = await env.STATE.get(AYNTEC_HEALTH_KEY, {
+    cacheTtl: STATE_CACHE_TTL_SECONDS,
+  });
+  return raw === null
+    ? { ...HEALTHY_STATE }
+    : parseHealthState(JSON.parse(raw));
+}
+
+async function readFxSnapshot(env: WorkerEnv): Promise<FxSnapshot | null> {
+  const raw = await env.STATE.get(FX_SNAPSHOT_KEY, {
+    cacheTtl: STATE_CACHE_TTL_SECONDS,
+  });
+  if (raw === null) {
+    return null;
+  }
+  const snapshot = parseFxSnapshotState(JSON.parse(raw));
+  if (snapshot.sourceUrl !== env.FX_API_URL) {
+    throw new Error("Persisted FX snapshot belongs to another source");
+  }
+  return snapshot;
+}
+
+async function readFxHealth(env: WorkerEnv): Promise<HealthState> {
+  const raw = await env.STATE.get(FX_HEALTH_KEY, {
     cacheTtl: STATE_CACHE_TTL_SECONDS,
   });
   return raw === null
@@ -203,7 +241,7 @@ async function runStatus(
   env: WorkerEnv,
   deps: MonitorDependencies,
 ): Promise<void> {
-  const [oakhouse, ayntec] = await Promise.allSettled([
+  const [oakhouse, ayntec, fx] = await Promise.allSettled([
     Promise.all([readSnapshot(env), readHealth(env)]).then(
       ([snapshot, health]) => formatStatusMessage(
         snapshot,
@@ -217,6 +255,13 @@ async function runStatus(
         snapshot,
         health,
         env.AYN_DASHBOARD_URL,
+      ),
+    ),
+    Promise.all([readFxSnapshot(env), readFxHealth(env)]).then(
+      ([snapshot, health]) => formatFxStatusMessage(
+        snapshot,
+        health,
+        env.FX_PAGE_URL,
       ),
     ),
   ]);
@@ -234,6 +279,13 @@ async function runStatus(
       monitor: "ayntec",
     });
   }
+  if (fx.status === "rejected") {
+    deps.log({
+      level: "error",
+      event: "telegram_status_section_failed",
+      monitor: "fx",
+    });
+  }
   await sendText(
     deps,
     [
@@ -246,6 +298,9 @@ async function runStatus(
           "AYN Shipping Dashboard",
           env.AYN_DASHBOARD_URL,
         ),
+      fx.status === "fulfilled"
+        ? fx.value
+        : formatStatusUnavailable("EUR/JPY", env.FX_PAGE_URL),
     ].join("\n\n━━━━━━━━━━\n\n"),
   );
 }
@@ -285,6 +340,31 @@ async function runAyntecTest(
   );
 }
 
+async function runFxDigest(
+  env: WorkerEnv,
+  deps: MonitorDependencies,
+): Promise<void> {
+  const snapshot = await readFxSnapshot(env);
+  if (snapshot === null) {
+    throw new Error("Persisted FX snapshot is not available");
+  }
+  await sendText(deps, formatFxDigestMessage(snapshot, env.FX_PAGE_URL));
+}
+
+async function runFxTest(
+  env: WorkerEnv,
+  deps: MonitorDependencies,
+): Promise<void> {
+  const snapshot = await readFxSnapshot(env);
+  if (snapshot === null) {
+    throw new Error("Persisted FX snapshot is not available");
+  }
+  await sendText(
+    deps,
+    formatFxSyntheticTestMessage(snapshot, env.FX_PAGE_URL),
+  );
+}
+
 export type TelegramUpdateHandler = (
   update: unknown,
   env: WorkerEnv,
@@ -314,6 +394,10 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
       await runTest(env, deps);
     } else if (command === "/test_ayntec") {
       await runAyntecTest(env, deps);
+    } else if (command === "/yen") {
+      await runFxDigest(env, deps);
+    } else if (command === "/test_yen") {
+      await runFxTest(env, deps);
     } else {
       if (["/start", "/help"].includes(command) && deps.syncCommandMenu) {
         try {
@@ -336,6 +420,7 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
           env.ROOMS_URL,
           !["/start", "/help"].includes(command),
           env.AYN_DASHBOARD_URL,
+          env.FX_PAGE_URL,
         ),
       );
     }
@@ -349,10 +434,14 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
           command,
           command === "/test_ayntec"
             ? "AYN Shipping Dashboard"
-            : env.PROPERTY_NAME,
+            : ["/yen", "/test_yen"].includes(command)
+              ? "EUR/JPY"
+              : env.PROPERTY_NAME,
           command === "/test_ayntec"
             ? env.AYN_DASHBOARD_URL
-            : env.ROOMS_URL,
+            : ["/yen", "/test_yen"].includes(command)
+              ? env.FX_PAGE_URL
+              : env.ROOMS_URL,
         ),
       );
     } catch {

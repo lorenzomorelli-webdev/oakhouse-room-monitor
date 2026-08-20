@@ -100,8 +100,10 @@ describe("syncTelegramCommandMenu", () => {
     expect(TELEGRAM_COMMANDS.map(({ command }) => command)).toEqual([
       "start",
       "status",
+      "yen",
       "test",
       "test_ayntec",
+      "test_yen",
       "help",
     ]);
     const requests: Array<{ method: string; body: Record<string, unknown> }> = [];

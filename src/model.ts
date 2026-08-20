@@ -94,6 +94,9 @@ export interface MonitorEnv {
 export interface WorkerEnv extends MonitorEnv {
   AYN_TARGET_URL: string;
   AYN_DASHBOARD_URL: string;
+  FX_API_URL: string;
+  FX_PAGE_URL: string;
+  TWELVE_DATA_API_KEY: string;
 }
 
 export function normalizeText(value: string): string {

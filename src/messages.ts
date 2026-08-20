@@ -144,6 +144,7 @@ export function formatCommandGuide(
   roomsUrl: string,
   unknownCommand = false,
   ayntecDashboardUrl?: string,
+  fxPageUrl?: string,
 ): string {
   const lines = [
     unknownCommand ? "❓ Comando non riconosciuto" : "🤖 " + propertyName + " — monitor operativo",
@@ -154,6 +155,9 @@ export function formatCommandGuide(
   ];
   if (ayntecDashboardUrl) {
     lines.push("📦 AYN: " + ayntecDashboardUrl);
+  }
+  if (fxPageUrl) {
+    lines.push("💴 EUR/JPY: " + fxPageUrl);
   }
   return lines.join("\n");
 }

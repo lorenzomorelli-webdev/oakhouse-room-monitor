@@ -10,7 +10,11 @@ export const TELEGRAM_COMMANDS: TelegramBotCommand[] = [
   },
   {
     command: "status",
-    description: "Mostra lo stato di Oakhouse e AYN",
+    description: "Mostra lo stato di tutti i monitor",
+  },
+  {
+    command: "yen",
+    description: "Mostra l'ultimo cambio EUR/JPY",
   },
   {
     command: "test",
@@ -19,6 +23,10 @@ export const TELEGRAM_COMMANDS: TelegramBotCommand[] = [
   {
     command: "test_ayntec",
     description: "Simula un nuovo batch AYN",
+  },
+  {
+    command: "test_yen",
+    description: "Simula un riepilogo EUR/JPY",
   },
   {
     command: "help",

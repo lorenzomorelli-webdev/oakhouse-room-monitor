@@ -10,6 +10,8 @@
 		"PROPERTY_NAME": "GRAN KOBE",
 		"AYN_TARGET_URL": "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page",
 		"AYN_DASHBOARD_URL": "https://www.ayntec.com/pages/shipment-dashboard",
+		"FX_API_URL": "https://api.twelvedata.com/time_series",
+		"FX_PAGE_URL": "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX",
 		"FAILURE_THRESHOLD": "3",
 		"FETCH_TIMEOUT_MS": "15000"
 	},
@@ -20,7 +22,8 @@
 		"required": [
 			"TELEGRAM_BOT_TOKEN",
 			"TELEGRAM_CHAT_ID",
-			"TELEGRAM_WEBHOOK_SECRET"
+			"TELEGRAM_WEBHOOK_SECRET",
+			"TWELVE_DATA_API_KEY"
 		]
 	},
 	"observability": {

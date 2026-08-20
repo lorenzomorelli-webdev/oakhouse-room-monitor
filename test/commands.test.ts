@@ -7,6 +7,12 @@ import type { AyntecSnapshot } from "../src/ayntec/model";
 import { parseAyntecHtml } from "../src/ayntec/parser";
 import { handleTelegramUpdate } from "../src/commands";
 import {
+  FX_HEALTH_KEY,
+  FX_SNAPSHOT_KEY,
+  type FxSnapshot,
+} from "../src/fx/model";
+import { parseFxTimeSeries } from "../src/fx/parser";
+import {
   HEALTH_KEY,
   HEALTHY_STATE,
   SNAPSHOT_KEY,
@@ -18,6 +24,7 @@ import type { MonitorDependencies } from "../src/monitor";
 import { parseOakhouseHtml } from "../src/parser";
 import { BASELINE_HTML } from "./fixtures/oakhouse";
 import { AYNTEC_DASHBOARD_HTML } from "./fixtures/ayntec";
+import { TWELVE_DATA_EUR_JPY_RESPONSE } from "./fixtures/fx";
 
 const URL = "https://www.oakhouse.jp/eng/house/1142";
 const ROOMS_URL = URL + "#room";
@@ -26,6 +33,9 @@ const AYN_TARGET_URL =
   "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page";
 const AYN_DASHBOARD_URL =
   "https://www.ayntec.com/pages/shipment-dashboard";
+const FX_API_URL = "https://api.twelvedata.com/time_series";
+const FX_PAGE_URL =
+  "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX";
 
 interface StateHarness {
   state: KVNamespace;
@@ -38,6 +48,8 @@ function createState(
   health: HealthState = HEALTHY_STATE,
   ayntecSnapshot?: AyntecSnapshot,
   ayntecHealth: HealthState = HEALTHY_STATE,
+  fxSnapshot?: FxSnapshot,
+  fxHealth: HealthState = HEALTHY_STATE,
 ): StateHarness {
   const values = new Map<string, string>();
   if (snapshot) {
@@ -48,6 +60,10 @@ function createState(
     values.set(AYNTEC_SNAPSHOT_KEY, JSON.stringify(ayntecSnapshot));
   }
   values.set(AYNTEC_HEALTH_KEY, JSON.stringify(ayntecHealth));
+  if (fxSnapshot) {
+    values.set(FX_SNAPSHOT_KEY, JSON.stringify(fxSnapshot));
+  }
+  values.set(FX_HEALTH_KEY, JSON.stringify(fxHealth));
   const writes: StateHarness["writes"] = [];
   return {
     state: {
@@ -83,6 +99,8 @@ function createHarness(
   health: HealthState = HEALTHY_STATE,
   ayntecSnapshot?: AyntecSnapshot,
   ayntecHealth: HealthState = HEALTHY_STATE,
+  fxSnapshot?: FxSnapshot,
+  fxHealth: HealthState = HEALTHY_STATE,
 ): {
   env: WorkerEnv;
   deps: MonitorDependencies;
@@ -98,6 +116,8 @@ function createHarness(
     health,
     ayntecSnapshot,
     ayntecHealth,
+    fxSnapshot,
+    fxHealth,
   );
   const messages: string[] = [];
   const logs: Array<Record<string, unknown>> = [];
@@ -111,6 +131,9 @@ function createHarness(
       PROPERTY_NAME: "GRAN KOBE",
       AYN_TARGET_URL,
       AYN_DASHBOARD_URL,
+      FX_API_URL,
+      FX_PAGE_URL,
+      TWELVE_DATA_API_KEY: "test-fx-key",
       FAILURE_THRESHOLD: "3",
       FETCH_TIMEOUT_MS: "15000",
       TELEGRAM_BOT_TOKEN: "test-token",
@@ -155,8 +178,11 @@ describe("Telegram commands", () => {
     expect(harness.messages.join("\n")).toContain("/status");
     expect(harness.messages.join("\n")).toContain("/test");
     expect(harness.messages.join("\n")).toContain("/test_ayntec");
+    expect(harness.messages.join("\n")).toContain("/yen");
+    expect(harness.messages.join("\n")).toContain("/test_yen");
     expect(harness.messages.join("\n")).toContain(ROOMS_URL);
     expect(harness.messages.join("\n")).toContain(AYN_DASHBOARD_URL);
+    expect(harness.messages.join("\n")).toContain(FX_PAGE_URL);
   });
 
   it("still answers /help when Telegram menu synchronization fails", async () => {
@@ -316,6 +342,100 @@ describe("Telegram commands", () => {
     expect(text).toContain(AYN_DASHBOARD_URL);
     expect(harness.loads()).toBe(0);
     expect(harness.writes).toEqual([]);
+  });
+
+  it("adds the persisted EUR/JPY state to the aggregate /status response", async () => {
+    const fxSnapshot = parseFxTimeSeries(
+      structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
+      FX_API_URL,
+      "2026-08-20T07:00:00.000Z",
+    );
+    const harness = createHarness(
+      undefined,
+      HEALTHY_STATE,
+      undefined,
+      HEALTHY_STATE,
+      fxSnapshot,
+      { ...HEALTHY_STATE, lastSuccessAt: fxSnapshot.checkedAt },
+    );
+
+    await handleTelegramUpdate(update("/status"), harness.env, harness.deps);
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("EUR/JPY — monitor operativo");
+    expect(text).toContain("Ultimo cambio: 185,4255 JPY per 1 EUR");
+    expect(text).toContain("09:00, 13:00, 17:00 e 21:00");
+    expect(text).toContain(FX_PAGE_URL);
+    expect(harness.loads()).toBe(0);
+    expect(harness.writes).toEqual([]);
+  });
+
+  it("sends the last persisted rate for /yen without calling the provider", async () => {
+    const fxSnapshot = parseFxTimeSeries(
+      structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
+      FX_API_URL,
+      "2026-08-20T07:00:00.000Z",
+    );
+    const harness = createHarness(
+      undefined,
+      HEALTHY_STATE,
+      undefined,
+      HEALTHY_STATE,
+      fxSnapshot,
+    );
+
+    await handleTelegramUpdate(update("/yen"), harness.env, harness.deps);
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("1 EUR = 185,4255 JPY");
+    expect(text).toContain(FX_PAGE_URL);
+    expect(text).not.toContain("TEST EUR/JPY");
+    expect(harness.loads()).toBe(0);
+    expect(harness.writes).toEqual([]);
+  });
+
+  it("sends a marked, persisted simulation for /test_yen", async () => {
+    const fxSnapshot = parseFxTimeSeries(
+      structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
+      FX_API_URL,
+      "2026-08-20T07:00:00.000Z",
+    );
+    const harness = createHarness(
+      undefined,
+      HEALTHY_STATE,
+      undefined,
+      HEALTHY_STATE,
+      fxSnapshot,
+    );
+
+    await handleTelegramUpdate(update("/test_yen"), harness.env, harness.deps);
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("🧪 TEST EUR/JPY");
+    expect(text).toContain("nessuna rilevazione reale");
+    expect(text).toContain("1 EUR = 185,4255 JPY");
+    expect(harness.loads()).toBe(0);
+    expect(harness.writes).toEqual([]);
+  });
+
+  it("still reports the other monitors when persisted FX state is invalid", async () => {
+    const oakhouseSnapshot = await parseOakhouseHtml(
+      BASELINE_HTML,
+      URL,
+      "2026-08-20T07:00:00.000Z",
+    );
+    const harness = createHarness(oakhouseSnapshot);
+    harness.setRawState(
+      FX_SNAPSHOT_KEY,
+      JSON.stringify({ schemaVersion: 999, history: [] }),
+    );
+
+    await handleTelegramUpdate(update("/status"), harness.env, harness.deps);
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("✅ GRAN KOBE — monitor operativo");
+    expect(text).toContain("⚠️ EUR/JPY — stato non disponibile");
+    expect(text).not.toContain("comando /status non riuscito");
   });
 
   it("uses the health heartbeat even when it is newer than the snapshot", async () => {

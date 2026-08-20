@@ -6,6 +6,10 @@ import {
 import { describe, expect, it } from "vitest";
 import { createWorker } from "../src/index";
 import type { AyntecMonitorRunner } from "../src/ayntec/monitor";
+import type {
+  FxMonitorDependencies,
+  FxMonitorRunner,
+} from "../src/fx/monitor";
 import type { MonitorEnv, WorkerEnv } from "../src/model";
 import type {
   MonitorDependencies,
@@ -20,11 +24,26 @@ const env: WorkerEnv = {
   AYN_TARGET_URL:
     "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page",
   AYN_DASHBOARD_URL: "https://www.ayntec.com/pages/shipment-dashboard",
+  FX_API_URL: "https://api.twelvedata.com/time_series",
+  FX_PAGE_URL:
+    "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX",
+  TWELVE_DATA_API_KEY: "test-fx-key",
   FAILURE_THRESHOLD: "3",
   FETCH_TIMEOUT_MS: "15000",
   TELEGRAM_BOT_TOKEN: "test-token",
   TELEGRAM_CHAT_ID: "123456",
   TELEGRAM_WEBHOOK_SECRET: "webhook-secret",
+};
+
+const fxDependencies: FxMonitorDependencies = {
+  async loadTimeSeries() {
+    return {};
+  },
+  async sendMessages() {},
+  now() {
+    return "2026-08-20T07:00:00.000Z";
+  },
+  log() {},
 };
 
 describe("scheduled Worker entry point", () => {
@@ -111,6 +130,108 @@ describe("scheduled Worker entry point", () => {
 
     expect(oakhouseRuns).toEqual([]);
     expect(ayntecRuns).toEqual([env]);
+  });
+
+  it("also runs FX at 09:00 Italian time in summer", async () => {
+    const ayntecRuns: WorkerEnv[] = [];
+    const fxRuns: WorkerEnv[] = [];
+    const dependencies: MonitorDependencies = {
+      async loadHtml() {
+        return "";
+      },
+      async sendMessages() {},
+      now() {
+        return "2026-08-20T07:00:00.000Z";
+      },
+      log() {},
+    };
+    const ayntecRunner: AyntecMonitorRunner = async (receivedEnv) => {
+      ayntecRuns.push(receivedEnv as WorkerEnv);
+      return {
+        status: "unchanged",
+        checkedAt: "2026-08-20T07:00:00.000Z",
+        detail: "No AYN shipment changes",
+      };
+    };
+    const fxRunner: FxMonitorRunner = async (receivedEnv) => {
+      fxRuns.push(receivedEnv as WorkerEnv);
+      return {
+        status: "notified",
+        checkedAt: "2026-08-20T07:00:00.000Z",
+        detail: "FX digest delivered",
+      };
+    };
+    const worker = createWorker(
+      async () => ({
+        status: "unchanged",
+        checkedAt: "2026-08-20T07:00:00.000Z",
+        detail: "No availability changes",
+      }),
+      () => dependencies,
+      async () => {},
+      ayntecRunner,
+      () => dependencies,
+      fxRunner,
+      () => fxDependencies,
+    );
+
+    await worker.scheduled(
+      createScheduledController({
+        scheduledTime: new Date("2026-08-20T07:00:00.000Z"),
+        cron: "0 * * * *",
+      }),
+      env,
+      createExecutionContext(),
+    );
+
+    expect(ayntecRuns).toEqual([env]);
+    expect(fxRuns).toEqual([env]);
+  });
+
+  it("isolates the hourly monitors when AYN fails during an FX slot", async () => {
+    let fxRuns = 0;
+    const dependencies: MonitorDependencies = {
+      async loadHtml() {
+        return "";
+      },
+      async sendMessages() {},
+      now() {
+        return "2026-01-15T08:00:00.000Z";
+      },
+      log() {},
+    };
+    const worker = createWorker(
+      async () => ({
+        status: "unchanged",
+        checkedAt: "2026-01-15T08:00:00.000Z",
+        detail: "No availability changes",
+      }),
+      () => dependencies,
+      async () => {},
+      async () => {
+        throw new Error("Injected AYN failure");
+      },
+      () => dependencies,
+      async () => {
+        fxRuns += 1;
+        return {
+          status: "notified",
+          checkedAt: "2026-01-15T08:00:00.000Z",
+          detail: "FX digest delivered",
+        };
+      },
+      () => fxDependencies,
+    );
+
+    await expect(worker.scheduled(
+      createScheduledController({
+        scheduledTime: new Date("2026-01-15T08:00:00.000Z"),
+        cron: "0 * * * *",
+      }),
+      env,
+      createExecutionContext(),
+    )).resolves.toBeUndefined();
+    expect(fxRuns).toBe(1);
   });
 
   it("does not run either monitor for an unknown Cron expression", async () => {
