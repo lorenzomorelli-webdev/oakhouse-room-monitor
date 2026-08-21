@@ -1,5 +1,6 @@
 import type { HealthState } from "../model";
 import { getFxMetrics, type FxSnapshot } from "./model";
+import type { FxTarget } from "./target";
 
 const RATE_FORMATTER = new Intl.NumberFormat("it-IT", {
   minimumFractionDigits: 4,
@@ -49,6 +50,7 @@ export function formatFxStatusMessage(
   snapshot: FxSnapshot | null,
   health: HealthState,
   pageUrl: string,
+  target: FxTarget | null = null,
 ): string {
   const hasFailures = health.consecutiveFailures > 0;
   const lines = [
@@ -68,8 +70,17 @@ export function formatFxStatusMessage(
       "Data di mercato: " + displayDate(snapshot.marketDate),
     );
   }
+  if (target === null) {
+    lines.push("Target attivo: nessuno");
+  } else {
+    lines.push(
+      "Target attivo: " + RATE_FORMATTER.format(target.threshold) + " JPY",
+      "Impostato il: " + displayTimestamp(target.setAt),
+    );
+  }
   lines.push(
-    "Riepiloghi: circa 09:02, 13:02, 17:02 e 21:02 (ora italiana, lun–ven)",
+    "Controllo target: ogni 3 minuti (lun–ven)",
+    "Riepiloghi: circa 10:00 e 17:00 (ora italiana, lun–ven)",
     hasFailures
       ? "Monitor schedulato: " + health.consecutiveFailures + " errori consecutivi"
       : "Monitor schedulato: nessun errore registrato",
@@ -90,4 +101,62 @@ export function formatFxSyntheticTestMessage(
     "Questo messaggio usa il cambio reale appena letto; nessuna rilevazione reale è stata salvata.",
     formatFxDigestMessage(snapshot, pageUrl),
   ].join("\n\n");
+}
+
+export function formatFxTargetSetMessage(
+  target: FxTarget,
+  snapshot: FxSnapshot,
+  pageUrl: string,
+): string {
+  return [
+    "🎯 Target EUR/JPY attivato: " +
+      RATE_FORMATTER.format(target.threshold) + " JPY",
+    "Cambio attuale: " + RATE_FORMATTER.format(snapshot.rate) + " JPY",
+    "Riceverai un solo avviso quando il cambio raggiungerà o supererà il target.",
+    "📈 " + pageUrl,
+  ].join("\n");
+}
+
+export function formatFxTargetSetPendingMessage(
+  target: FxTarget,
+  pageUrl: string,
+): string {
+  return [
+    "🎯 Target EUR/JPY attivato: " +
+      RATE_FORMATTER.format(target.threshold) + " JPY",
+    "Verifica immediata non disponibile.",
+    "Il controllo automatico riproverà entro 3 minuti.",
+    "📈 " + pageUrl,
+  ].join("\n");
+}
+
+export function formatFxTargetReachedMessage(
+  target: FxTarget,
+  snapshot: FxSnapshot,
+  pageUrl: string,
+): string {
+  return [
+    "🚨 TARGET EUR/JPY RAGGIUNTO",
+    "Target: " + RATE_FORMATTER.format(target.threshold) + " JPY",
+    "Cambio rilevato: " + RATE_FORMATTER.format(snapshot.rate) + " JPY",
+    "Target disattivato automaticamente dopo questo avviso.",
+    "📈 Grafico Il Sole 24 Ore: " + pageUrl,
+  ].join("\n");
+}
+
+export function formatFxTargetUsageMessage(pageUrl: string): string {
+  return [
+    "⚠️ Target EUR/JPY non valido",
+    "Uso: /set_yen 185,3",
+    "Sono accettati sia la virgola sia il punto decimale.",
+    "📈 " + pageUrl,
+  ].join("\n");
+}
+
+export function formatFxTargetClearedMessage(pageUrl: string): string {
+  return [
+    "✅ Target EUR/JPY disattivato",
+    "Non riceverai avvisi di soglia finché non userai di nuovo /set_yen.",
+    "📈 " + pageUrl,
+  ].join("\n");
 }

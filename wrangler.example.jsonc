@@ -16,7 +16,7 @@
 		"FETCH_TIMEOUT_MS": "15000"
 	},
 	"triggers": {
-		"crons": ["* * * * *", "0 * * * *", "2 * * * *"]
+		"crons": ["* * * * *", "0 * * * *", "*/3 * * * *"]
 	},
 	"secrets": {
 		"required": [

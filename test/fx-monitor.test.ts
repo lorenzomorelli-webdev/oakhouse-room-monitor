@@ -34,7 +34,7 @@ interface Harness {
   setSendFailure(value: Error | null): void;
 }
 
-function createHarness(): Harness {
+function createHarness(nowStepMs = 4 * 60 * 60_000): Harness {
   const messages: string[] = [];
   const loads: Array<{ url: string; apiKey: string; timeoutMs: number }> = [];
   let payload: unknown = structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE);
@@ -70,7 +70,7 @@ function createHarness(): Harness {
       },
       now() {
         const checkedAt = new Date(now).toISOString();
-        now += 4 * 60 * 60_000;
+        now += nowStepMs;
         return checkedAt;
       },
       log() {},
@@ -82,10 +82,86 @@ beforeEach(async () => {
   await Promise.all([
     env.STATE.delete(FX_SNAPSHOT_KEY),
     env.STATE.delete(FX_HEALTH_KEY),
+    env.STATE.delete("fx:eurjpy:target:v1"),
   ]);
 });
 
 describe("runFxMonitor", () => {
+  it("checks and persists a rate below target without sending an intermediate digest", async () => {
+    const harness = createHarness();
+    await env.STATE.put(
+      "fx:eurjpy:target:v1",
+      JSON.stringify({
+        schemaVersion: 1,
+        threshold: 186.5,
+        setAt: "2026-08-20T06:55:00.000Z",
+      }),
+    );
+
+    await expect(
+      runFxMonitor(env, harness.deps, { sendDigest: false }),
+    ).resolves.toMatchObject({
+      status: "initialized",
+      checkedAt: "2026-08-20T07:00:00.000Z",
+    });
+
+    expect(harness.messages).toEqual([]);
+    expect(
+      await env.STATE.get<FxSnapshot>(FX_SNAPSHOT_KEY, "json"),
+    ).toMatchObject({ rate: 185.4255 });
+    expect(
+      await env.STATE.get("fx:eurjpy:target:v1", "json"),
+    ).toMatchObject({ threshold: 186.5 });
+  });
+
+  it("polls every three minutes but limits unchanged KV heartbeats to fifteen minutes", async () => {
+    const harness = createHarness(3 * 60_000);
+
+    await runFxMonitor(env, harness.deps, { sendDigest: false });
+    const second = await runFxMonitor(
+      env,
+      harness.deps,
+      { sendDigest: false },
+    );
+
+    expect(harness.loads).toHaveLength(2);
+    expect(harness.messages).toEqual([]);
+    expect(second).toMatchObject({
+      status: "unchanged",
+      detail: "FX quote checked without notification",
+    });
+    expect(
+      await env.STATE.get<FxSnapshot>(FX_SNAPSHOT_KEY, "json"),
+    ).toMatchObject({ checkedAt: "2026-08-20T07:00:00.000Z" });
+    expect(
+      await env.STATE.get<HealthState>(FX_HEALTH_KEY, "json"),
+    ).toMatchObject({ lastSuccessAt: "2026-08-20T07:00:00.000Z" });
+  });
+
+  it("alerts once when a scheduled check reaches the target, then clears it", async () => {
+    const harness = createHarness();
+    await env.STATE.put(
+      "fx:eurjpy:target:v1",
+      JSON.stringify({
+        schemaVersion: 1,
+        threshold: 185.3,
+        setAt: "2026-08-20T06:55:00.000Z",
+      }),
+    );
+
+    await runFxMonitor(env, harness.deps, { sendDigest: false });
+
+    expect(harness.messages).toHaveLength(1);
+    expect(harness.messages[0]).toContain("TARGET EUR/JPY RAGGIUNTO");
+    expect(harness.messages[0]).toContain("Target: 185,3000 JPY");
+    expect(harness.messages[0]).toContain("Cambio rilevato: 185,4255 JPY");
+    expect(await env.STATE.get("fx:eurjpy:target:v1")).toBeNull();
+
+    harness.messages.length = 0;
+    await runFxMonitor(env, harness.deps, { sendDigest: false });
+    expect(harness.messages).toEqual([]);
+  });
+
   it("fetches, sends and stores the first scheduled EUR/JPY digest", async () => {
     const harness = createHarness();
 

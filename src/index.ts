@@ -11,7 +11,7 @@ import {
   type FxMonitorEnv,
   type FxMonitorRunner,
 } from "./fx/monitor";
-import { isFxDigestDue } from "./fx/schedule";
+import { getFxSchedule } from "./fx/schedule";
 import type { WorkerEnv } from "./model";
 import {
   handleTelegramUpdate,
@@ -51,7 +51,7 @@ export interface OakhouseWorker extends ScheduledWorker {
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 export const OAKHOUSE_CRON = "* * * * *";
 export const AYNTEC_CRON = "0 * * * *";
-export const FX_CRON = "2 * * * *";
+export const FX_CRON = "*/3 * * * *";
 
 function secretsMatch(expected: string, received: string | null): boolean {
   if (!expected || received === null || expected.length !== received.length) {
@@ -148,10 +148,15 @@ export function createWorker(
           () => ayntecRunner(env, ayntecDependenciesFactory(env)),
         );
       } else if (controller.cron === FX_CRON) {
-        if (isFxDigestDue(new Date(controller.scheduledTime))) {
+        const schedule = getFxSchedule(new Date(controller.scheduledTime));
+        if (schedule.shouldPoll) {
           await runScheduled(
             "fx",
-            () => fxRunner(env, fxDependenciesFactory(env)),
+            () => fxRunner(
+              env,
+              fxDependenciesFactory(env),
+              { sendDigest: schedule.sendDigest },
+            ),
           );
         }
       } else {

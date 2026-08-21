@@ -7,8 +7,9 @@ and sends useful updates to one private Telegram chat:
   checked every minute;
 - [AYN Shipping Dashboard](https://www.ayntec.com/pages/shipment-dashboard),
   checked every hour;
-- EUR/JPY, summarized around 09:02, 13:02, 17:02, and 21:02 Europe/Rome on
-  weekdays, with a direct link to the
+- EUR/JPY, checked every three minutes on weekdays for a user-configurable
+  one-shot target and summarized around 10:00 and 17:00 Europe/Rome, with a
+  direct link to the
   [Il Sole 24 Ore chart](https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX).
 
 The Worker runs entirely on Cloudflare after deployment. No computer or
@@ -24,7 +25,9 @@ always-on server is required.
 - alerts for AYN only when a newer shipment date appears and includes every row
   in that latest batch;
 - silently stores AYN corrections made within the already-known latest date;
-- sends four weekday EUR/JPY summaries with the current rate, daily movement,
+- checks EUR/JPY every three minutes on weekdays and sends a one-shot alert
+  when the active Telegram-configured target is reached;
+- sends two weekday EUR/JPY summaries with the current rate, daily movement,
   previous close, daily range, 52-week range, and distance from its high;
 - includes a concise recap and a direct page link in every alert;
 - keeps Oakhouse and AYN silent after their baselines until meaningful data
@@ -32,8 +35,8 @@ always-on server is required.
 - reports repeated fetch or parsing failures and announces recovery;
 - preserves the last delivered snapshot if fetching, parsing, KV, or Telegram
   delivery fails;
-- exposes private `/status`, `/yen`, `/test`, `/test_ayntec`, `/test_yen`,
-  `/help`, and `/start` Telegram commands;
+- exposes private `/set_yen`, `/clear_yen`, `/status`, `/yen`, `/test`,
+  `/test_ayntec`, `/test_yen`, `/help`, and `/start` Telegram commands;
 - keeps all three monitors isolated through separate execution paths and KV
   keys.
 
@@ -43,11 +46,12 @@ always-on server is required.
 Cloudflare Cron
   ├─ every minute ─────► Oakhouse parser ──► Oakhouse KV snapshot
   ├─ minute 00 hourly ─► AYN parser ───────► AYN KV snapshot
-  └─ minute 02 hourly ─► Italian-time guard
-          └─ 09/13/17/21 Europe/Rome, Mon–Fri
-                         ► Twelve Data quote ─► EUR/JPY KV snapshot
-                                                       │
-                         alert or digest ──────────────┴─► Telegram
+  └─ every 3 minutes ──► Italian weekday guard
+                         ► Twelve Data quote ─► target comparison
+                                  │                    │
+                 10:00/17:00 digest or target hit ────┴─► Telegram
+                                  │
+                         throttled FX KV heartbeat
 ```
 
 Oakhouse is parsed from its server-rendered room table. AYN is fetched through
@@ -55,13 +59,20 @@ Shopify's compact `main-page` section endpoint, while notifications link to the
 normal dashboard page. Oakhouse alerts on tracked room changes. AYN alerts only
 when its maximum published shipment date moves forward; same-day corrections
 refresh the stored snapshot without sending noise. EUR/JPY uses Twelve Data's
-compact daily quote, including its 52-week range, and sends a text-only digest;
-the linked Il Sole 24 Ore page provides the chart on demand. Its Cron Trigger is
-separate from AYN so both jobs receive an independent free-tier CPU budget.
+compact daily quote, including its 52-week range. It polls every three minutes
+on weekdays, sends only two routine text digests, and immediately alerts when
+the active one-shot target is met. The linked Il Sole 24 Ore page provides the
+chart on demand. Its Cron Trigger is separate from AYN so both jobs receive an
+independent free-tier CPU budget. FX persistence is throttled to 15-minute
+heartbeats so frequent live checks stay comfortably within the free KV write
+quota.
 
-`/status` and `/yen` do not fetch any source: they read persisted snapshots and
-health states, and the AYN status section prints every row from the latest
-batch. `/test` makes a
+`/status` and `/yen` do not fetch any source: they read persisted snapshots,
+health states, and the active EUR/JPY target. `/set_yen 185,3` accepts either a
+comma or point decimal separator, replaces the active target, and performs one
+immediate live check. A reached target sends one alert and then disables itself;
+`/clear_yen` disables it manually. The AYN status section prints every row from
+the latest batch. `/test` makes a
 synthetic Oakhouse diff, `/test_ayntec` simulates a batch on the following
 calendar day, and `/test_yen` reads the live provider and sends the result with
 a prominent test label. No test command writes to KV.
@@ -88,8 +99,9 @@ only an empty secret example and a reusable Wrangler template.
 - [pnpm](https://pnpm.io/);
 - a Cloudflare account with Workers and Workers KV;
 - a dedicated Telegram bot and a private chat with that bot;
-- a [Twelve Data API key](https://twelvedata.com/) (the free tier is ample for
-  four weekday requests).
+- a [Twelve Data API key](https://twelvedata.com/) (the free tier currently
+  allows 800 daily credits; the default schedule uses 480 on weekdays, plus
+  occasional manual checks).
 
 ## Setup
 
@@ -151,11 +163,11 @@ Create a Twelve Data API key, then store it as a Cloudflare secret:
 pnpm exec wrangler secret put TWELVE_DATA_API_KEY
 ```
 
-The Worker requests one compact `EUR/JPY` quote around 09:02, 13:02, 17:02, and
-21:02 in `Europe/Rome`, Monday through Friday. Daylight-saving changes are
-handled automatically. The two-minute offset gives the FX job a Cron invocation
-separate from AYN. The reported value is indicative; a bank or exchange may
-apply a spread and commissions.
+The Worker requests one compact `EUR/JPY` quote every three minutes, Monday
+through Friday, and sends routine digests around 10:00 and 17:00 in
+`Europe/Rome`. Daylight-saving changes are handled automatically. Intermediate
+quotes remain silent unless the active target is reached. The reported value is
+indicative; a bank or exchange may apply a spread and commissions.
 
 ### 5. Enable the three Cron Triggers and deploy
 
@@ -163,7 +175,7 @@ Set the local trigger configuration to:
 
 ```json
 "triggers": {
-  "crons": ["* * * * *", "0 * * * *", "2 * * * *"]
+  "crons": ["* * * * *", "0 * * * *", "*/3 * * * *"]
 }
 ```
 
@@ -198,13 +210,16 @@ configured private chat and activates the native command menu button:
 start - Start the bot and show its guide
 status - Show all monitor states
 yen - Show the latest saved EUR/JPY digest
+set_yen - Set a target, for example /set_yen 185,3
+clear_yen - Disable the active EUR/JPY target
 test - Send a safe synthetic Oakhouse alert
 test_ayntec - Simulate an AYN batch on the next calendar day
 test_yen - Fetch and send a live EUR/JPY digest as a test
 help - Show the command guide and source links
 ```
 
-Send `/help` once, then `/status`, `/yen`, `/test`, `/test_ayntec`, and
+Send `/help` once to force a verified command-menu synchronization, then use
+`/status`, `/yen`, `/set_yen 185,3`, `/clear_yen`, `/test`, `/test_ayntec`, and
 `/test_yen` to verify the complete webhook-to-Worker-to-Telegram flow. Test
 commands are clearly labelled as simulations and never update persisted
 snapshots.
@@ -223,7 +238,7 @@ Trigger any scheduled route locally:
 ```bash
 curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
 curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"
-curl "http://localhost:8787/__scheduled?cron=2+*+*+*+*"
+curl "http://localhost:8787/__scheduled?cron=*%2F3+*+*+*+*"
 ```
 
 Useful checks:
@@ -236,35 +251,38 @@ pnpm exec wrangler tail oakhouse-room-monitor --format pretty
 
 ## Persistence and delivery semantics
 
-Workers KV stores six versioned records:
+Workers KV stores seven versioned records:
 
 - `house:1142:snapshot:v1`: last valid Oakhouse snapshot delivered;
 - `house:1142:health:v1`: Oakhouse failure and heartbeat state;
 - `ayntec:shipment-dashboard:snapshot:v1`: last valid AYN snapshot, including
   silently stored same-day corrections;
 - `ayntec:shipment-dashboard:health:v1`: AYN failure and heartbeat state;
-- `fx:eurjpy:snapshot:v2`: last successfully delivered compact EUR/JPY quote;
-- `fx:eurjpy:health:v1`: EUR/JPY failure and heartbeat state.
+- `fx:eurjpy:snapshot:v2`: latest persisted compact EUR/JPY quote;
+- `fx:eurjpy:health:v1`: EUR/JPY failure and heartbeat state;
+- `fx:eurjpy:target:v1`: optional one-shot threshold set from Telegram.
 
 Notifications use **at-least-once delivery**. If Telegram times out after a
 partial multi-message delivery, a later run may repeat part of the alert. The
 monitor deliberately prefers a possible duplicate over silently losing a
 change notification.
 
-Workers KV is eventually consistent. Reads use its minimum 30-second cache
-TTL. A failed notification never advances the corresponding data snapshot.
+Workers KV is eventually consistent. Snapshot and health reads use its minimum
+30-second cache TTL; target reads bypass that cache option so Telegram changes
+are observed as quickly as KV propagation permits. A failed notification never
+advances the corresponding data snapshot or clears an active target.
 
 ## Free-tier usage
 
 With the default schedules, the Worker performs approximately:
 
-- 1,488 invocations per day: 1,440 Oakhouse, 24 AYN, and 24 lightweight FX
-  schedule checks;
-- 2,928 KV reads per day, plus 8 FX reads on weekdays;
-- 288 regular Oakhouse health-heartbeat writes and 24 regular AYN heartbeat
-  writes per day, plus 8 FX writes on weekdays, initial baselines, and real
-  state transitions;
-- four Twelve Data calls and four FX Telegram digests per weekday.
+- 1,944 Cron invocations per day: 1,440 Oakhouse, 24 AYN, and 480 lightweight
+  FX schedule checks;
+- about 4,368 KV reads on weekdays and 2,928 on weekends, plus manual commands;
+- about 504 regular KV writes on weekdays: 288 Oakhouse heartbeats, 24 AYN
+  heartbeats, and at most 192 FX snapshot/health heartbeats, plus infrequent
+  baselines and real state transitions;
+- 480 Twelve Data calls and two routine FX Telegram digests per weekday.
 
 Pricing and quotas can change. Check the current
 [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)

@@ -132,7 +132,7 @@ describe("scheduled Worker entry point", () => {
     expect(ayntecRuns).toEqual([env]);
   });
 
-  it("runs AYN and FX in separate invocations around 09:00 Italian time", async () => {
+  it("runs AYN and FX in separate invocations around 10:00 Italian time", async () => {
     const ayntecRuns: WorkerEnv[] = [];
     const fxRuns: WorkerEnv[] = [];
     const dependencies: MonitorDependencies = {
@@ -177,7 +177,7 @@ describe("scheduled Worker entry point", () => {
 
     await worker.scheduled(
       createScheduledController({
-        scheduledTime: new Date("2026-08-20T07:00:00.000Z"),
+        scheduledTime: new Date("2026-08-20T08:00:00.000Z"),
         cron: "0 * * * *",
       }),
       env,
@@ -189,8 +189,8 @@ describe("scheduled Worker entry point", () => {
 
     await worker.scheduled(
       createScheduledController({
-        scheduledTime: new Date("2026-08-20T07:02:00.000Z"),
-        cron: "2 * * * *",
+        scheduledTime: new Date("2026-08-20T08:00:00.000Z"),
+        cron: "*/3 * * * *",
       }),
       env,
       createExecutionContext(),
@@ -247,13 +247,72 @@ describe("scheduled Worker entry point", () => {
 
     await expect(worker.scheduled(
       createScheduledController({
-        scheduledTime: new Date("2026-01-15T08:02:00.000Z"),
-        cron: "2 * * * *",
+        scheduledTime: new Date("2026-01-15T09:00:00.000Z"),
+        cron: "*/3 * * * *",
       }),
       env,
       createExecutionContext(),
     )).resolves.toBeUndefined();
     expect(fxRuns).toBe(1);
+  });
+
+  it("checks FX every three minutes on weekdays and marks only digest slots", async () => {
+    const runs: Array<{ sendDigest: boolean } | undefined> = [];
+    const dependencies: MonitorDependencies = {
+      async loadHtml() {
+        return "";
+      },
+      async sendMessages() {},
+      now() {
+        return "2026-08-20T08:00:00.000Z";
+      },
+      log() {},
+    };
+    const fxRunner: FxMonitorRunner = async (_receivedEnv, _deps, options) => {
+      runs.push(options);
+      return {
+        status: options?.sendDigest ? "notified" : "unchanged",
+        checkedAt: "2026-08-20T08:00:00.000Z",
+        detail: "FX checked",
+      };
+    };
+    const worker = createWorker(
+      async () => ({
+        status: "unchanged",
+        checkedAt: "2026-08-20T08:00:00.000Z",
+        detail: "No availability changes",
+      }),
+      () => dependencies,
+      async () => {},
+      async () => ({
+        status: "unchanged",
+        checkedAt: "2026-08-20T08:00:00.000Z",
+        detail: "No AYN shipment changes",
+      }),
+      () => dependencies,
+      fxRunner,
+      () => fxDependencies,
+    );
+
+    for (const scheduledTime of [
+      "2026-08-20T08:00:00.000Z",
+      "2026-08-20T08:03:00.000Z",
+      "2026-08-22T08:00:00.000Z",
+    ]) {
+      await worker.scheduled(
+        createScheduledController({
+          scheduledTime: new Date(scheduledTime),
+          cron: "*/3 * * * *",
+        }),
+        env,
+        createExecutionContext(),
+      );
+    }
+
+    expect(runs).toEqual([
+      { sendDigest: true },
+      { sendDigest: false },
+    ]);
   });
 
   it("does not run either monitor for an unknown Cron expression", async () => {

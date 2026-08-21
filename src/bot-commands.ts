@@ -17,6 +17,14 @@ export const TELEGRAM_COMMANDS: TelegramBotCommand[] = [
     description: "Mostra l'ultimo cambio EUR/JPY",
   },
   {
+    command: "set_yen",
+    description: "Imposta un target, es. /set_yen 185,3",
+  },
+  {
+    command: "clear_yen",
+    description: "Disattiva il target EUR/JPY",
+  },
+  {
     command: "test",
     description: "Simula una modifica Oakhouse",
   },

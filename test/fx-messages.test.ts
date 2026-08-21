@@ -49,7 +49,9 @@ describe("FX messages", () => {
 
     expect(text).toContain("EUR/JPY — monitor operativo");
     expect(text).toContain("Ultimo cambio: 185,4255 JPY per 1 EUR");
-    expect(text).toContain("Riepiloghi: circa 09:02, 13:02, 17:02 e 21:02");
+    expect(text).toContain("Target attivo: nessuno");
+    expect(text).toContain("Controllo target: ogni 3 minuti (lun–ven)");
+    expect(text).toContain("Riepiloghi: circa 10:00 e 17:00 (ora italiana, lun–ven)");
   });
 
   it("marks a live manual test clearly without saving or inventing rates", () => {

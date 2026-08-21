@@ -15,6 +15,11 @@ import {
   formatFxDigestMessage,
   formatFxStatusMessage,
   formatFxSyntheticTestMessage,
+  formatFxTargetClearedMessage,
+  formatFxTargetReachedMessage,
+  formatFxTargetSetMessage,
+  formatFxTargetSetPendingMessage,
+  formatFxTargetUsageMessage,
 } from "./fx/messages";
 import {
   FX_HEALTH_KEY,
@@ -22,6 +27,12 @@ import {
   type FxSnapshot,
 } from "./fx/model";
 import { parseFxSnapshotState } from "./fx/state";
+import {
+  createFxTarget,
+  FX_TARGET_KEY,
+  parseFxTargetState,
+  type FxTarget,
+} from "./fx/target";
 import {
   AVAILABLE_STATUS,
   HEALTHY_STATE,
@@ -62,7 +73,14 @@ type TelegramCommand =
   | "/test_ayntec"
   | "/yen"
   | "/test_yen"
+  | "/set_yen"
+  | "/clear_yen"
   | "/unknown";
+
+interface ParsedTelegramCommand {
+  command: TelegramCommand;
+  argument: string;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -87,10 +105,10 @@ function parseTelegramMessage(update: unknown): TelegramMessage | null {
   return { chatId: String(chatId), chatType, text: message.text };
 }
 
-function parseCommand(text: string): TelegramCommand {
-  const firstToken = text.trim().split(/\s+/, 1)[0] ?? "";
+function parseCommand(text: string): ParsedTelegramCommand {
+  const [firstToken = "", ...arguments_] = text.trim().split(/\s+/);
   const command = firstToken.split("@", 1)[0].toLowerCase();
-  return [
+  const recognized = [
     "/start",
     "/help",
     "/status",
@@ -98,9 +116,12 @@ function parseCommand(text: string): TelegramCommand {
     "/test_ayntec",
     "/yen",
     "/test_yen",
+    "/set_yen",
+    "/clear_yen",
   ].includes(command)
     ? command as TelegramCommand
     : "/unknown";
+  return { command: recognized, argument: arguments_.join(" ") };
 }
 
 async function readSnapshot(env: WorkerEnv): Promise<Snapshot | null> {
@@ -172,6 +193,11 @@ async function readFxHealth(env: WorkerEnv): Promise<HealthState> {
   return raw === null
     ? { ...HEALTHY_STATE }
     : parseHealthState(JSON.parse(raw));
+}
+
+async function readFxTarget(env: WorkerEnv): Promise<FxTarget | null> {
+  const raw = await env.STATE.get(FX_TARGET_KEY);
+  return raw === null ? null : parseFxTargetState(JSON.parse(raw));
 }
 
 function syntheticAvailabilityDiff(snapshot: Snapshot): SnapshotDiff {
@@ -257,11 +283,12 @@ async function runStatus(
         env.AYN_DASHBOARD_URL,
       ),
     ),
-    Promise.all([readFxSnapshot(env), readFxHealth(env)]).then(
-      ([snapshot, health]) => formatFxStatusMessage(
+    Promise.all([readFxSnapshot(env), readFxHealth(env), readFxTarget(env)]).then(
+      ([snapshot, health, target]) => formatFxStatusMessage(
         snapshot,
         health,
         env.FX_PAGE_URL,
+        target,
       ),
     ),
   ]);
@@ -365,6 +392,64 @@ async function runFxTest(
   );
 }
 
+async function runSetFxTarget(
+  env: WorkerEnv,
+  deps: MonitorDependencies,
+  argument: string,
+): Promise<void> {
+  let target: FxTarget;
+  try {
+    target = createFxTarget(argument, deps.now());
+  } catch {
+    await sendText(deps, formatFxTargetUsageMessage(env.FX_PAGE_URL));
+    return;
+  }
+  let snapshot: FxSnapshot;
+  try {
+    if (!deps.loadFxSnapshot) {
+      throw new Error("Live FX check is not available");
+    }
+    snapshot = await deps.loadFxSnapshot();
+  } catch {
+    await env.STATE.put(FX_TARGET_KEY, JSON.stringify(target));
+    deps.log({
+      level: "error",
+      event: "telegram_fx_target_immediate_check_failed",
+    });
+    await sendText(
+      deps,
+      formatFxTargetSetPendingMessage(target, env.FX_PAGE_URL),
+    );
+    return;
+  }
+  if (snapshot.rate >= target.threshold) {
+    try {
+      await sendText(
+        deps,
+        formatFxTargetReachedMessage(target, snapshot, env.FX_PAGE_URL),
+      );
+    } catch (error) {
+      await env.STATE.put(FX_TARGET_KEY, JSON.stringify(target));
+      throw error;
+    }
+    await env.STATE.delete(FX_TARGET_KEY);
+    return;
+  }
+  await env.STATE.put(FX_TARGET_KEY, JSON.stringify(target));
+  await sendText(
+    deps,
+    formatFxTargetSetMessage(target, snapshot, env.FX_PAGE_URL),
+  );
+}
+
+async function runClearFxTarget(
+  env: WorkerEnv,
+  deps: MonitorDependencies,
+): Promise<void> {
+  await env.STATE.delete(FX_TARGET_KEY);
+  await sendText(deps, formatFxTargetClearedMessage(env.FX_PAGE_URL));
+}
+
 export type TelegramUpdateHandler = (
   update: unknown,
   env: WorkerEnv,
@@ -386,7 +471,7 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
     return;
   }
 
-  const command = parseCommand(message.text);
+  const { command, argument } = parseCommand(message.text);
   try {
     if (command === "/status") {
       await runStatus(env, deps);
@@ -398,6 +483,10 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
       await runFxDigest(env, deps);
     } else if (command === "/test_yen") {
       await runFxTest(env, deps);
+    } else if (command === "/set_yen") {
+      await runSetFxTarget(env, deps, argument);
+    } else if (command === "/clear_yen") {
+      await runClearFxTarget(env, deps);
     } else {
       if (["/start", "/help"].includes(command) && deps.syncCommandMenu) {
         try {
@@ -434,12 +523,12 @@ export const handleTelegramUpdate: TelegramUpdateHandler = async (
           command,
           command === "/test_ayntec"
             ? "AYN Shipping Dashboard"
-            : ["/yen", "/test_yen"].includes(command)
+            : ["/yen", "/test_yen", "/set_yen", "/clear_yen"].includes(command)
               ? "EUR/JPY"
               : env.PROPERTY_NAME,
           command === "/test_ayntec"
             ? env.AYN_DASHBOARD_URL
-            : ["/yen", "/test_yen"].includes(command)
+            : ["/yen", "/test_yen", "/set_yen", "/clear_yen"].includes(command)
               ? env.FX_PAGE_URL
               : env.ROOMS_URL,
         ),

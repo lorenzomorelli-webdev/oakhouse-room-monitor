@@ -11,7 +11,10 @@ import {
 import type { RunResult } from "../monitor";
 import { parseHealthState } from "../state";
 import { sendTelegramMessages } from "../telegram";
-import { formatFxDigestMessage } from "./messages";
+import {
+  formatFxDigestMessage,
+  formatFxTargetReachedMessage,
+} from "./messages";
 import {
   FX_HEALTH_KEY,
   FX_SNAPSHOT_KEY,
@@ -20,6 +23,11 @@ import {
 import { parseFxQuote } from "./parser";
 import { fetchFxQuote } from "./source";
 import { parseFxSnapshotState } from "./state";
+import {
+  FX_TARGET_KEY,
+  parseFxTargetState,
+  type FxTarget,
+} from "./target";
 
 export interface FxMonitorEnv {
   STATE: KVNamespace;
@@ -46,10 +54,31 @@ export interface FxMonitorDependencies {
 export type FxMonitorRunner = (
   env: FxMonitorEnv,
   deps: FxMonitorDependencies,
+  options?: FxMonitorOptions,
 ) => Promise<RunResult>;
+
+export interface FxMonitorOptions {
+  sendDigest: boolean;
+}
 
 const MONITOR_NAME = "EUR/JPY";
 const STATE_CACHE_TTL_SECONDS = 30;
+const STATE_HEARTBEAT_MS = 15 * 60 * 1000;
+
+function isHeartbeatDue(
+  previousTimestamp: string | null,
+  checkedAt: string,
+): boolean {
+  if (previousTimestamp === null) {
+    return true;
+  }
+  const previous = Date.parse(previousTimestamp);
+  const current = Date.parse(checkedAt);
+  return !Number.isFinite(previous) ||
+    !Number.isFinite(current) ||
+    current < previous ||
+    current - previous >= STATE_HEARTBEAT_MS;
+}
 
 function positiveInteger(value: string, name: string): number {
   const parsed = Number(value);
@@ -96,6 +125,11 @@ async function readHealth(env: FxMonitorEnv): Promise<HealthState> {
   return raw === null
     ? { ...HEALTHY_STATE }
     : parseHealthState(JSON.parse(raw));
+}
+
+async function readTarget(env: FxMonitorEnv): Promise<FxTarget | null> {
+  const raw = await env.STATE.get(FX_TARGET_KEY);
+  return raw === null ? null : parseFxTargetState(JSON.parse(raw));
 }
 
 async function recordFailure(
@@ -148,14 +182,20 @@ async function recordFailure(
     }
   }
 
-  try {
-    await env.STATE.put(FX_HEALTH_KEY, JSON.stringify(next));
-  } catch (healthWriteError) {
-    deps.log({
-      level: "error",
-      event: "fx_health_write_failed",
-      error: describeError(healthWriteError, env),
-    });
+  const stateChanged =
+    next.consecutiveFailures !== previous.consecutiveFailures ||
+    next.outageDetected !== previous.outageDetected ||
+    next.alertSent !== previous.alertSent;
+  if (stateChanged || isHeartbeatDue(previous.lastErrorAt, checkedAt)) {
+    try {
+      await env.STATE.put(FX_HEALTH_KEY, JSON.stringify(next));
+    } catch (healthWriteError) {
+      deps.log({
+        level: "error",
+        event: "fx_health_write_failed",
+        error: describeError(healthWriteError, env),
+      });
+    }
   }
 
   deps.log({
@@ -189,7 +229,11 @@ export function createFxProductionDependencies(
   };
 }
 
-export const runFxMonitor: FxMonitorRunner = async (env, deps) => {
+export const runFxMonitor: FxMonitorRunner = async (
+  env,
+  deps,
+  options = { sendDigest: true },
+) => {
   const checkedAt = deps.now();
   let current: FxSnapshot;
   try {
@@ -212,10 +256,12 @@ export const runFxMonitor: FxMonitorRunner = async (env, deps) => {
 
   let previous: FxSnapshot | null;
   let health: HealthState;
+  let target: FxTarget | null;
   try {
-    [previous, health] = await Promise.all([
+    [previous, health, target] = await Promise.all([
       readSnapshot(env),
       readHealth(env),
+      readTarget(env),
     ]);
   } catch (error) {
     return recordFailure(env, deps, checkedAt, error, true);
@@ -225,27 +271,51 @@ export const runFxMonitor: FxMonitorRunner = async (env, deps) => {
   if (health.outageDetected) {
     texts.push(formatRecoveryMessage(MONITOR_NAME, env.FX_PAGE_URL));
   }
-  texts.push(formatFxDigestMessage(current, env.FX_PAGE_URL));
+  let targetReached = false;
+  if (target !== null && current.rate >= target.threshold) {
+    targetReached = true;
+    texts.push(formatFxTargetReachedMessage(target, current, env.FX_PAGE_URL));
+  } else if (options.sendDigest) {
+    texts.push(formatFxDigestMessage(current, env.FX_PAGE_URL));
+  }
 
-  try {
-    await deps.sendMessages(
-      texts.flatMap((text) => splitTelegramText(text)),
-    );
-  } catch (error) {
-    return recordFailure(env, deps, checkedAt, error, false);
+  if (texts.length > 0) {
+    try {
+      await deps.sendMessages(
+        texts.flatMap((text) => splitTelegramText(text)),
+      );
+    } catch (error) {
+      return recordFailure(env, deps, checkedAt, error, false);
+    }
   }
 
   try {
-    await Promise.all([
-      env.STATE.put(FX_SNAPSHOT_KEY, JSON.stringify(current)),
-      env.STATE.put(
+    const recovered =
+      health.consecutiveFailures > 0 ||
+      health.outageDetected ||
+      health.alertSent;
+    const writes: Promise<unknown>[] = [];
+    if (
+      previous === null ||
+      targetReached ||
+      options.sendDigest ||
+      isHeartbeatDue(previous.checkedAt, checkedAt)
+    ) {
+      writes.push(env.STATE.put(FX_SNAPSHOT_KEY, JSON.stringify(current)));
+    }
+    if (recovered || isHeartbeatDue(health.lastSuccessAt, checkedAt)) {
+      writes.push(env.STATE.put(
         FX_HEALTH_KEY,
         JSON.stringify({
           ...HEALTHY_STATE,
           lastSuccessAt: checkedAt,
         } satisfies HealthState),
-      ),
-    ]);
+      ));
+    }
+    if (targetReached) {
+      writes.push(env.STATE.delete(FX_TARGET_KEY));
+    }
+    await Promise.all(writes);
   } catch (error) {
     return recordFailure(env, deps, checkedAt, error, true);
   }
@@ -254,7 +324,9 @@ export const runFxMonitor: FxMonitorRunner = async (env, deps) => {
     ? "recovered"
     : previous === null
       ? "initialized"
-      : "notified";
+      : texts.length > 0
+        ? "notified"
+        : "unchanged";
   deps.log({
     level: "info",
     event: "fx_monitor_completed",
@@ -262,12 +334,15 @@ export const runFxMonitor: FxMonitorRunner = async (env, deps) => {
     checkedAt,
     marketDate: current.marketDate,
     rate: current.rate,
+    targetReached,
   });
   return {
     status,
     checkedAt,
     detail: status === "recovered"
-      ? "FX monitor recovered and digest delivered"
-      : "FX digest delivered and stored",
+      ? "FX monitor recovered"
+      : texts.length > 0
+        ? "FX notification delivered and quote stored"
+        : "FX quote checked without notification",
   };
 };

@@ -40,6 +40,7 @@ const FX_PAGE_URL =
 interface StateHarness {
   state: KVNamespace;
   writes: Array<{ key: string; value: string }>;
+  deletes: string[];
   setRaw(key: string, value: string): void;
 }
 
@@ -65,6 +66,7 @@ function createState(
   }
   values.set(FX_HEALTH_KEY, JSON.stringify(fxHealth));
   const writes: StateHarness["writes"] = [];
+  const deletes: string[] = [];
   return {
     state: {
       async get(key: string) {
@@ -74,8 +76,13 @@ function createState(
         writes.push({ key, value });
         values.set(key, value);
       },
+      async delete(key: string) {
+        deletes.push(key);
+        values.delete(key);
+      },
     } as unknown as KVNamespace,
     writes,
+    deletes,
     setRaw(key, value) {
       values.set(key, value);
     },
@@ -110,6 +117,7 @@ function createHarness(
   fxLoads: () => number;
   menuSyncs: () => number;
   writes: StateHarness["writes"];
+  deletes: string[];
   setRawState(key: string, value: string): void;
 } {
   const state = createState(
@@ -174,6 +182,7 @@ function createHarness(
     fxLoads: () => fxLoadCount,
     menuSyncs: () => menuSyncCount,
     writes: state.writes,
+    deletes: state.deletes,
     setRawState: state.setRaw,
   };
 }
@@ -190,6 +199,8 @@ describe("Telegram commands", () => {
     expect(harness.messages.join("\n")).toContain("/test");
     expect(harness.messages.join("\n")).toContain("/test_ayntec");
     expect(harness.messages.join("\n")).toContain("/yen");
+    expect(harness.messages.join("\n")).toContain("/set_yen");
+    expect(harness.messages.join("\n")).toContain("/clear_yen");
     expect(harness.messages.join("\n")).toContain("/test_yen");
     expect(harness.messages.join("\n")).toContain(ROOMS_URL);
     expect(harness.messages.join("\n")).toContain(AYN_DASHBOARD_URL);
@@ -375,7 +386,9 @@ describe("Telegram commands", () => {
     const text = harness.messages.join("\n");
     expect(text).toContain("EUR/JPY — monitor operativo");
     expect(text).toContain("Ultimo cambio: 185,4255 JPY per 1 EUR");
-    expect(text).toContain("09:02, 13:02, 17:02 e 21:02");
+    expect(text).toContain("Target attivo: nessuno");
+    expect(text).toContain("Controllo target: ogni 3 minuti (lun–ven)");
+    expect(text).toContain("10:00 e 17:00");
     expect(text).toContain(FX_PAGE_URL);
     expect(harness.loads()).toBe(0);
     expect(harness.writes).toEqual([]);
@@ -418,6 +431,158 @@ describe("Telegram commands", () => {
     expect(harness.loads()).toBe(0);
     expect(harness.fxLoads()).toBe(1);
     expect(harness.writes).toEqual([]);
+  });
+
+  it("sets a persistent one-shot EUR/JPY target from comma input", async () => {
+    const harness = createHarness();
+
+    await handleTelegramUpdate(
+      update("/set_yen 186,5"),
+      harness.env,
+      harness.deps,
+    );
+
+    const targetWrite = harness.writes.find(
+      ({ key }) => key === "fx:eurjpy:target:v1",
+    );
+    expect(targetWrite).toBeDefined();
+    expect(JSON.parse(targetWrite!.value)).toEqual({
+      schemaVersion: 1,
+      threshold: 186.5,
+      setAt: NOW,
+    });
+    expect(harness.fxLoads()).toBe(1);
+    expect(harness.messages.join("\n")).toContain(
+      "Target EUR/JPY attivato: 186,5000",
+    );
+    expect(harness.messages.join("\n")).toContain(
+      "Cambio attuale: 185,4255",
+    );
+  });
+
+  it("alerts immediately and clears a target already reached", async () => {
+    const harness = createHarness();
+    harness.setRawState(
+      "fx:eurjpy:target:v1",
+      JSON.stringify({
+        schemaVersion: 1,
+        threshold: 186.5,
+        setAt: "2026-08-17T16:00:00.000Z",
+      }),
+    );
+
+    await handleTelegramUpdate(
+      update("/set_yen@scanning_lollo_bot 185.3"),
+      harness.env,
+      harness.deps,
+    );
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("TARGET EUR/JPY RAGGIUNTO");
+    expect(text).toContain("Target: 185,3000 JPY");
+    expect(text).toContain("Cambio rilevato: 185,4255 JPY");
+    expect(text).toContain("Target disattivato automaticamente");
+    expect(harness.writes).toEqual([]);
+    expect(harness.deletes).toEqual(["fx:eurjpy:target:v1"]);
+  });
+
+  it.each(["", "abc", "185,3 extra", "0", "1001"])(
+    "rejects an invalid EUR/JPY target without changing state: %j",
+    async (value) => {
+      const harness = createHarness();
+
+      await handleTelegramUpdate(
+        update("/set_yen" + (value ? " " + value : "")),
+        harness.env,
+        harness.deps,
+      );
+
+      expect(harness.writes).toEqual([]);
+      expect(harness.deletes).toEqual([]);
+      expect(harness.fxLoads()).toBe(0);
+      expect(harness.messages.join("\n")).toContain(
+        "Uso: /set_yen 185,3",
+      );
+    },
+  );
+
+  it("clears the active EUR/JPY target without calling the provider", async () => {
+    const harness = createHarness();
+    harness.setRawState(
+      "fx:eurjpy:target:v1",
+      JSON.stringify({
+        schemaVersion: 1,
+        threshold: 186.5,
+        setAt: NOW,
+      }),
+    );
+
+    await handleTelegramUpdate(
+      update("/clear_yen"),
+      harness.env,
+      harness.deps,
+    );
+
+    expect(harness.deletes).toEqual(["fx:eurjpy:target:v1"]);
+    expect(harness.fxLoads()).toBe(0);
+    expect(harness.messages.join("\n")).toContain(
+      "Target EUR/JPY disattivato",
+    );
+  });
+
+  it("shows the active EUR/JPY target in the aggregate status", async () => {
+    const fxSnapshot = parseFxQuote(
+      structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
+      FX_API_URL,
+      "2026-08-20T07:00:00.000Z",
+    );
+    const harness = createHarness(
+      undefined,
+      HEALTHY_STATE,
+      undefined,
+      HEALTHY_STATE,
+      fxSnapshot,
+      { ...HEALTHY_STATE, lastSuccessAt: fxSnapshot.checkedAt },
+    );
+    harness.setRawState(
+      "fx:eurjpy:target:v1",
+      JSON.stringify({
+        schemaVersion: 1,
+        threshold: 186.5,
+        setAt: "2026-08-21T10:00:00.000Z",
+      }),
+    );
+
+    await handleTelegramUpdate(update("/status"), harness.env, harness.deps);
+
+    const text = harness.messages.join("\n");
+    expect(text).toContain("Target attivo: 186,5000 JPY");
+    expect(text).toContain("Impostato il: 21/08/26, 12:00:00");
+  });
+
+  it("keeps a newly set target active when the immediate live check fails", async () => {
+    const harness = createHarness();
+    const deps: MonitorDependencies = {
+      ...harness.deps,
+      async loadFxSnapshot() {
+        throw new Error("Injected Twelve Data outage");
+      },
+    };
+
+    await handleTelegramUpdate(
+      update("/set_yen 186.5"),
+      harness.env,
+      deps,
+    );
+
+    expect(harness.writes.some(
+      ({ key }) => key === "fx:eurjpy:target:v1",
+    )).toBe(true);
+    const text = harness.messages.join("\n");
+    expect(text).toContain("Target EUR/JPY attivato: 186,5000 JPY");
+    expect(text).toContain("Verifica immediata non disponibile");
+    expect(text).toContain("Il controllo automatico riproverà entro 3 minuti");
+    expect(text).not.toContain("comando /set_yen non riuscito");
   });
 
   it("still reports the other monitors when persisted FX state is invalid", async () => {

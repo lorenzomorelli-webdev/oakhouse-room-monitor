@@ -101,6 +101,8 @@ describe("syncTelegramCommandMenu", () => {
       "start",
       "status",
       "yen",
+      "set_yen",
+      "clear_yen",
       "test",
       "test_ayntec",
       "test_yen",
