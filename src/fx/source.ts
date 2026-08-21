@@ -1,6 +1,6 @@
 import type { FetchLike } from "../source";
 
-export async function fetchFxTimeSeries(
+export async function fetchFxQuote(
   apiUrl: string,
   apiKey: string,
   timeoutMs: number,
@@ -10,12 +10,7 @@ export async function fetchFxTimeSeries(
   url.search = new URLSearchParams({
     symbol: "EUR/JPY",
     interval: "1day",
-    outputsize: "366",
-    timezone: "Europe/Rome",
     dp: "5",
-    format: "JSON",
-    previous_close: "true",
-    order: "desc",
   }).toString();
 
   let response: Response;

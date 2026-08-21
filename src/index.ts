@@ -51,6 +51,7 @@ export interface OakhouseWorker extends ScheduledWorker {
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 export const OAKHOUSE_CRON = "* * * * *";
 export const AYNTEC_CRON = "0 * * * *";
+export const FX_CRON = "2 * * * *";
 
 function secretsMatch(expected: string, received: string | null): boolean {
   if (!expected || received === null || expected.length !== received.length) {
@@ -142,21 +143,17 @@ export function createWorker(
           () => runner(env, dependenciesFactory(env)),
         );
       } else if (controller.cron === AYNTEC_CRON) {
-        const runs = [
-          runScheduled(
-            "ayntec",
-            () => ayntecRunner(env, ayntecDependenciesFactory(env)),
-          ),
-        ];
+        await runScheduled(
+          "ayntec",
+          () => ayntecRunner(env, ayntecDependenciesFactory(env)),
+        );
+      } else if (controller.cron === FX_CRON) {
         if (isFxDigestDue(new Date(controller.scheduledTime))) {
-          runs.push(
-            runScheduled(
-              "fx",
-              () => fxRunner(env, fxDependenciesFactory(env)),
-            ),
+          await runScheduled(
+            "fx",
+            () => fxRunner(env, fxDependenciesFactory(env)),
           );
         }
-        await Promise.all(runs);
       } else {
         console.warn(JSON.stringify({
           event: "scheduled_cron_ignored",

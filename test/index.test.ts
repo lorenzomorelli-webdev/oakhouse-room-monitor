@@ -24,7 +24,7 @@ const env: WorkerEnv = {
   AYN_TARGET_URL:
     "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page",
   AYN_DASHBOARD_URL: "https://www.ayntec.com/pages/shipment-dashboard",
-  FX_API_URL: "https://api.twelvedata.com/time_series",
+  FX_API_URL: "https://api.twelvedata.com/quote",
   FX_PAGE_URL:
     "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX",
   TWELVE_DATA_API_KEY: "test-fx-key",
@@ -36,7 +36,7 @@ const env: WorkerEnv = {
 };
 
 const fxDependencies: FxMonitorDependencies = {
-  async loadTimeSeries() {
+  async loadQuote() {
     return {};
   },
   async sendMessages() {},
@@ -132,7 +132,7 @@ describe("scheduled Worker entry point", () => {
     expect(ayntecRuns).toEqual([env]);
   });
 
-  it("also runs FX at 09:00 Italian time in summer", async () => {
+  it("runs AYN and FX in separate invocations around 09:00 Italian time", async () => {
     const ayntecRuns: WorkerEnv[] = [];
     const fxRuns: WorkerEnv[] = [];
     const dependencies: MonitorDependencies = {
@@ -185,10 +185,22 @@ describe("scheduled Worker entry point", () => {
     );
 
     expect(ayntecRuns).toEqual([env]);
+    expect(fxRuns).toEqual([]);
+
+    await worker.scheduled(
+      createScheduledController({
+        scheduledTime: new Date("2026-08-20T07:02:00.000Z"),
+        cron: "2 * * * *",
+      }),
+      env,
+      createExecutionContext(),
+    );
+
     expect(fxRuns).toEqual([env]);
+    expect(ayntecRuns).toEqual([env]);
   });
 
-  it("isolates the hourly monitors when AYN fails during an FX slot", async () => {
+  it("keeps the FX invocation independent when AYN fails", async () => {
     let fxRuns = 0;
     const dependencies: MonitorDependencies = {
       async loadHtml() {
@@ -227,6 +239,16 @@ describe("scheduled Worker entry point", () => {
       createScheduledController({
         scheduledTime: new Date("2026-01-15T08:00:00.000Z"),
         cron: "0 * * * *",
+      }),
+      env,
+      createExecutionContext(),
+    )).resolves.toBeUndefined();
+    expect(fxRuns).toBe(0);
+
+    await expect(worker.scheduled(
+      createScheduledController({
+        scheduledTime: new Date("2026-01-15T08:02:00.000Z"),
+        cron: "2 * * * *",
       }),
       env,
       createExecutionContext(),

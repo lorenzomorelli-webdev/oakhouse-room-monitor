@@ -11,7 +11,7 @@ import {
   FX_SNAPSHOT_KEY,
   type FxSnapshot,
 } from "../src/fx/model";
-import { parseFxTimeSeries } from "../src/fx/parser";
+import { parseFxQuote } from "../src/fx/parser";
 import {
   HEALTH_KEY,
   HEALTHY_STATE,
@@ -33,7 +33,7 @@ const AYN_TARGET_URL =
   "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page";
 const AYN_DASHBOARD_URL =
   "https://www.ayntec.com/pages/shipment-dashboard";
-const FX_API_URL = "https://api.twelvedata.com/time_series";
+const FX_API_URL = "https://api.twelvedata.com/quote";
 const FX_PAGE_URL =
   "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX";
 
@@ -149,7 +149,7 @@ function createHarness(
       },
       async loadFxSnapshot() {
         fxLoadCount += 1;
-        return parseFxTimeSeries(
+        return parseFxQuote(
           structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
           FX_API_URL,
           "2026-08-20T07:00:00.000Z",
@@ -356,7 +356,7 @@ describe("Telegram commands", () => {
   });
 
   it("adds the persisted EUR/JPY state to the aggregate /status response", async () => {
-    const fxSnapshot = parseFxTimeSeries(
+    const fxSnapshot = parseFxQuote(
       structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
       FX_API_URL,
       "2026-08-20T07:00:00.000Z",
@@ -375,14 +375,14 @@ describe("Telegram commands", () => {
     const text = harness.messages.join("\n");
     expect(text).toContain("EUR/JPY — monitor operativo");
     expect(text).toContain("Ultimo cambio: 185,4255 JPY per 1 EUR");
-    expect(text).toContain("09:00, 13:00, 17:00 e 21:00");
+    expect(text).toContain("09:02, 13:02, 17:02 e 21:02");
     expect(text).toContain(FX_PAGE_URL);
     expect(harness.loads()).toBe(0);
     expect(harness.writes).toEqual([]);
   });
 
   it("sends the last persisted rate for /yen without calling the provider", async () => {
-    const fxSnapshot = parseFxTimeSeries(
+    const fxSnapshot = parseFxQuote(
       structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE),
       FX_API_URL,
       "2026-08-20T07:00:00.000Z",
@@ -429,7 +429,7 @@ describe("Telegram commands", () => {
     const harness = createHarness(oakhouseSnapshot);
     harness.setRawState(
       FX_SNAPSHOT_KEY,
-      JSON.stringify({ schemaVersion: 999, history: [] }),
+      JSON.stringify({ schemaVersion: 999, yearLow: 170, yearHigh: 190 }),
     );
 
     await handleTelegramUpdate(update("/status"), harness.env, harness.deps);

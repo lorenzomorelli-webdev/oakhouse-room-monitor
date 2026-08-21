@@ -10,13 +10,13 @@
 		"PROPERTY_NAME": "GRAN KOBE",
 		"AYN_TARGET_URL": "https://www.ayntec.com/pages/shipment-dashboard?section_id=main-page",
 		"AYN_DASHBOARD_URL": "https://www.ayntec.com/pages/shipment-dashboard",
-		"FX_API_URL": "https://api.twelvedata.com/time_series",
+		"FX_API_URL": "https://api.twelvedata.com/quote",
 		"FX_PAGE_URL": "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX",
 		"FAILURE_THRESHOLD": "3",
 		"FETCH_TIMEOUT_MS": "15000"
 	},
 	"triggers": {
-		"crons": []
+		"crons": ["* * * * *", "0 * * * *", "2 * * * *"]
 	},
 	"secrets": {
 		"required": [

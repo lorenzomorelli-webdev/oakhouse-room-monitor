@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { fetchFxTimeSeries } from "../src/fx/source";
+import { fetchFxQuote } from "../src/fx/source";
 import type { FetchLike } from "../src/source";
 import { TWELVE_DATA_EUR_JPY_RESPONSE } from "./fixtures/fx";
 
-describe("fetchFxTimeSeries", () => {
-  it("requests one year of EUR/JPY daily candles with header authentication", async () => {
+describe("fetchFxQuote", () => {
+  it("requests one lightweight EUR/JPY daily quote with header authentication", async () => {
     let capturedUrl = "";
     let capturedInit: RequestInit | undefined;
     const fetcher: FetchLike = async (input, init) => {
@@ -14,8 +14,8 @@ describe("fetchFxTimeSeries", () => {
     };
 
     await expect(
-      fetchFxTimeSeries(
-        "https://api.twelvedata.com/time_series",
+      fetchFxQuote(
+        "https://api.twelvedata.com/quote",
         "private-api-key",
         15_000,
         fetcher,
@@ -24,17 +24,12 @@ describe("fetchFxTimeSeries", () => {
 
     const url = new URL(capturedUrl);
     expect(url.origin + url.pathname).toBe(
-      "https://api.twelvedata.com/time_series",
+      "https://api.twelvedata.com/quote",
     );
     expect(Object.fromEntries(url.searchParams)).toEqual({
       symbol: "EUR/JPY",
       interval: "1day",
-      outputsize: "366",
-      timezone: "Europe/Rome",
       dp: "5",
-      format: "JSON",
-      previous_close: "true",
-      order: "desc",
     });
     expect(url.search).not.toContain("private-api-key");
     const headers = new Headers(capturedInit?.headers);
@@ -47,8 +42,8 @@ describe("fetchFxTimeSeries", () => {
     const fetcher: FetchLike = async () =>
       Response.json({ status: "error" }, { status: 429 });
 
-    const promise = fetchFxTimeSeries(
-      "https://api.twelvedata.com/time_series",
+    const promise = fetchFxQuote(
+      "https://api.twelvedata.com/quote",
       "private-api-key",
       15_000,
       fetcher,
@@ -64,8 +59,8 @@ describe("fetchFxTimeSeries", () => {
       });
 
     await expect(
-      fetchFxTimeSeries(
-        "https://api.twelvedata.com/time_series",
+      fetchFxQuote(
+        "https://api.twelvedata.com/quote",
         "private-api-key",
         15_000,
         fetcher,
@@ -78,8 +73,8 @@ describe("fetchFxTimeSeries", () => {
       throw new Error("transport leaked private-api-key");
     };
 
-    const promise = fetchFxTimeSeries(
-      "https://api.twelvedata.com/time_series",
+    const promise = fetchFxQuote(
+      "https://api.twelvedata.com/quote",
       "private-api-key",
       15_000,
       fetcher,

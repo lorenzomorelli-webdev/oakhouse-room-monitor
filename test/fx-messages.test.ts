@@ -10,8 +10,8 @@ import { HEALTHY_STATE } from "../src/model";
 const PAGE_URL =
   "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX";
 const snapshot: FxSnapshot = {
-  schemaVersion: 1,
-  sourceUrl: "https://api.twelvedata.com/time_series",
+  schemaVersion: 2,
+  sourceUrl: "https://api.twelvedata.com/quote",
   checkedAt: "2026-08-20T14:00:00.000Z",
   symbol: "EUR/JPY",
   marketDate: "2026-08-20",
@@ -20,12 +20,8 @@ const snapshot: FxSnapshot = {
   dayHigh: 185.78,
   dayLow: 184.502,
   previousClose: 184.6385,
-  history: [
-    { date: "2025-08-21", close: 172.11, high: 172.44, low: 170.918 },
-    { date: "2025-11-20", close: 178.86, high: 179.12, low: 177.95 },
-    { date: "2026-05-20", close: 186.81, high: 187.568, low: 185.44 },
-    { date: "2026-08-20", close: 185.4255, high: 185.78, low: 184.502 },
-  ],
+  yearLow: 170.918,
+  yearHigh: 187.568,
 };
 
 describe("FX messages", () => {
@@ -37,8 +33,8 @@ describe("FX messages", () => {
     expect(text).toContain("+0,43%");
     expect(text).toContain("Chiusura precedente: 184,6385");
     expect(text).toContain("Intervallo oggi: 184,5020 – 185,7800");
-    expect(text).toContain("Intervallo 1 anno: 170,9180 – 187,5680");
-    expect(text).toContain("Andamento 1 anno: +7,74%");
+    expect(text).toContain("Intervallo 52 settimane: 170,9180 – 187,5680");
+    expect(text).toContain("Distanza dal massimo: -1,14%");
     expect(text).toContain(PAGE_URL);
     expect(text).not.toContain("186,5");
     expect(text).not.toContain("obiettivo");
@@ -53,7 +49,7 @@ describe("FX messages", () => {
 
     expect(text).toContain("EUR/JPY — monitor operativo");
     expect(text).toContain("Ultimo cambio: 185,4255 JPY per 1 EUR");
-    expect(text).toContain("Riepiloghi: 09:00, 13:00, 17:00 e 21:00");
+    expect(text).toContain("Riepiloghi: circa 09:02, 13:02, 17:02 e 21:02");
   });
 
   it("marks a live manual test clearly without saving or inventing rates", () => {

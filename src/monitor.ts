@@ -1,7 +1,7 @@
 import { diffSnapshots } from "./diff";
 import type { FxSnapshot } from "./fx/model";
-import { parseFxTimeSeries } from "./fx/parser";
-import { fetchFxTimeSeries } from "./fx/source";
+import { parseFxQuote } from "./fx/parser";
+import { fetchFxQuote } from "./fx/source";
 import {
   HEALTHY_STATE,
   HEALTH_KEY,
@@ -225,12 +225,12 @@ export function createProductionDependencies(
         throw new Error("TWELVE_DATA_API_KEY is required");
       }
       const checkedAt = new Date().toISOString();
-      const payload = await fetchFxTimeSeries(
+      const payload = await fetchFxQuote(
         env.FX_API_URL,
         env.TWELVE_DATA_API_KEY,
         positiveInteger(env.FETCH_TIMEOUT_MS, "FETCH_TIMEOUT_MS"),
       );
-      return parseFxTimeSeries(payload, env.FX_API_URL, checkedAt);
+      return parseFxQuote(payload, env.FX_API_URL, checkedAt);
     },
     sendMessages(messages) {
       return sendTelegramMessages(

@@ -17,8 +17,8 @@ import {
   FX_SNAPSHOT_KEY,
   type FxSnapshot,
 } from "./model";
-import { parseFxTimeSeries } from "./parser";
-import { fetchFxTimeSeries } from "./source";
+import { parseFxQuote } from "./parser";
+import { fetchFxQuote } from "./source";
 import { parseFxSnapshotState } from "./state";
 
 export interface FxMonitorEnv {
@@ -33,7 +33,7 @@ export interface FxMonitorEnv {
 }
 
 export interface FxMonitorDependencies {
-  loadTimeSeries(
+  loadQuote(
     apiUrl: string,
     apiKey: string,
     timeoutMs: number,
@@ -172,7 +172,7 @@ export function createFxProductionDependencies(
   env: FxMonitorEnv,
 ): FxMonitorDependencies {
   return {
-    loadTimeSeries: fetchFxTimeSeries,
+    loadQuote: fetchFxQuote,
     sendMessages(messages) {
       return sendTelegramMessages(
         env.TELEGRAM_BOT_TOKEN,
@@ -200,12 +200,12 @@ export const runFxMonitor: FxMonitorRunner = async (env, deps) => {
       env.FETCH_TIMEOUT_MS,
       "FETCH_TIMEOUT_MS",
     );
-    const payload = await deps.loadTimeSeries(
+    const payload = await deps.loadQuote(
       env.FX_API_URL,
       env.TWELVE_DATA_API_KEY,
       timeoutMs,
     );
-    current = parseFxTimeSeries(payload, env.FX_API_URL, checkedAt);
+    current = parseFxQuote(payload, env.FX_API_URL, checkedAt);
   } catch (error) {
     return recordFailure(env, deps, checkedAt, error, true);
   }

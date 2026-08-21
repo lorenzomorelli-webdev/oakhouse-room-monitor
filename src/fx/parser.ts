@@ -1,6 +1,5 @@
 import {
   FX_SCHEMA_VERSION,
-  type FxDailyPoint,
   type FxSnapshot,
 } from "./model";
 
@@ -24,7 +23,11 @@ function isCalendarDate(value: unknown): value is string {
   if (!match) {
     return false;
   }
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  const date = new Date(Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+  ));
   return date.toISOString().slice(0, 10) === value;
 }
 
@@ -32,70 +35,57 @@ function invalidResponse(): never {
   throw new Error("Invalid Twelve Data response");
 }
 
-export function parseFxTimeSeries(
+export function parseFxQuote(
   value: unknown,
   sourceUrl: string,
   checkedAt: string,
 ): FxSnapshot {
   if (
     !isRecord(value) ||
-    value.status !== "ok" ||
-    !isRecord(value.meta) ||
-    value.meta.symbol !== "EUR/JPY" ||
-    !Array.isArray(value.values) ||
-    value.values.length < 2
+    value.symbol !== "EUR/JPY" ||
+    !isCalendarDate(value.datetime) ||
+    !isRecord(value.fifty_two_week)
   ) {
     return invalidResponse();
   }
 
-  const parsedRows = value.values.map((row) => {
-    if (!isRecord(row) || !isCalendarDate(row.datetime)) {
-      return invalidResponse();
-    }
-    const open = parseFiniteNumber(row.open);
-    const high = parseFiniteNumber(row.high);
-    const low = parseFiniteNumber(row.low);
-    const close = parseFiniteNumber(row.close);
-    if (
-      open === null || high === null || low === null || close === null ||
-      high < Math.max(open, close) || low > Math.min(open, close) || low > high
-    ) {
-      return invalidResponse();
-    }
-    return { date: row.datetime, open, high, low, close, previousClose: parseFiniteNumber(row.previous_close) };
-  });
+  const dayOpen = parseFiniteNumber(value.open);
+  const dayHigh = parseFiniteNumber(value.high);
+  const dayLow = parseFiniteNumber(value.low);
+  const rate = parseFiniteNumber(value.close);
+  const previousClose = parseFiniteNumber(value.previous_close);
+  const yearLow = parseFiniteNumber(value.fifty_two_week.low);
+  const yearHigh = parseFiniteNumber(value.fifty_two_week.high);
 
-  parsedRows.sort((left, right) => left.date.localeCompare(right.date));
-  for (let index = 1; index < parsedRows.length; index += 1) {
-    if (parsedRows[index - 1].date === parsedRows[index].date) {
-      return invalidResponse();
-    }
-  }
-
-  const latest = parsedRows.at(-1);
-  const prior = parsedRows.at(-2);
-  if (!latest || !prior) {
+  if (
+    dayOpen === null ||
+    dayHigh === null ||
+    dayLow === null ||
+    rate === null ||
+    previousClose === null ||
+    yearLow === null ||
+    yearHigh === null ||
+    dayHigh < Math.max(dayOpen, rate) ||
+    dayLow > Math.min(dayOpen, rate) ||
+    dayLow > dayHigh ||
+    yearLow > dayLow ||
+    yearHigh < dayHigh
+  ) {
     return invalidResponse();
   }
-  const previousClose = latest.previousClose ?? prior.close;
-  const cutoff = new Date(latest.date + "T00:00:00.000Z");
-  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
-  const cutoffDate = cutoff.toISOString().slice(0, 10);
-  const history: FxDailyPoint[] = parsedRows
-    .filter(({ date }) => date >= cutoffDate)
-    .map(({ date, close, high, low }) => ({ date, close, high, low }));
 
   return {
     schemaVersion: FX_SCHEMA_VERSION,
     sourceUrl,
     checkedAt,
     symbol: "EUR/JPY",
-    marketDate: latest.date,
-    rate: latest.close,
-    dayOpen: latest.open,
-    dayHigh: latest.high,
-    dayLow: latest.low,
+    marketDate: value.datetime,
+    rate,
+    dayOpen,
+    dayHigh,
+    dayLow,
     previousClose,
-    history,
+    yearLow,
+    yearHigh,
   };
 }

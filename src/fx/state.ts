@@ -1,6 +1,5 @@
 import {
   FX_SCHEMA_VERSION,
-  type FxDailyPoint,
   type FxSnapshot,
 } from "./model";
 
@@ -46,44 +45,13 @@ export function parseFxSnapshotState(value: unknown): FxSnapshot {
     !isPositiveNumber(value.dayHigh) ||
     !isPositiveNumber(value.dayLow) ||
     !isPositiveNumber(value.previousClose) ||
+    !isPositiveNumber(value.yearLow) ||
+    !isPositiveNumber(value.yearHigh) ||
     value.dayHigh < Math.max(value.dayOpen, value.rate) ||
     value.dayLow > Math.min(value.dayOpen, value.rate) ||
     value.dayLow > value.dayHigh ||
-    !Array.isArray(value.history) ||
-    value.history.length < 2
-  ) {
-    return invalidSnapshot();
-  }
-
-  const history: FxDailyPoint[] = [];
-  let previousDate = "";
-  for (const point of value.history) {
-    if (
-      !isRecord(point) ||
-      !isCalendarDate(point.date) ||
-      !isPositiveNumber(point.close) ||
-      !isPositiveNumber(point.high) ||
-      !isPositiveNumber(point.low) ||
-      point.high < point.close ||
-      point.low > point.close ||
-      point.low > point.high ||
-      point.date <= previousDate
-    ) {
-      return invalidSnapshot();
-    }
-    previousDate = point.date;
-    history.push({
-      date: point.date,
-      close: point.close,
-      high: point.high,
-      low: point.low,
-    });
-  }
-  if (
-    history.at(-1)?.date !== value.marketDate ||
-    history.at(-1)?.close !== value.rate ||
-    history.at(-1)?.high !== value.dayHigh ||
-    history.at(-1)?.low !== value.dayLow
+    value.yearLow > value.dayLow ||
+    value.yearHigh < value.dayHigh
   ) {
     return invalidSnapshot();
   }
@@ -99,6 +67,7 @@ export function parseFxSnapshotState(value: unknown): FxSnapshot {
     dayHigh: value.dayHigh,
     dayLow: value.dayLow,
     previousClose: value.previousClose,
-    history,
+    yearLow: value.yearLow,
+    yearHigh: value.yearHigh,
   };
 }

@@ -36,8 +36,8 @@ export function formatFxDigestMessage(
     "Variazione giornaliera: " + PERCENT_FORMATTER.format(metrics.dayChangePercent) + "%",
     "Chiusura precedente: " + RATE_FORMATTER.format(snapshot.previousClose),
     "Intervallo oggi: " + RATE_FORMATTER.format(snapshot.dayLow) + " – " + RATE_FORMATTER.format(snapshot.dayHigh),
-    "Intervallo 1 anno: " + RATE_FORMATTER.format(metrics.yearLow) + " – " + RATE_FORMATTER.format(metrics.yearHigh),
-    "Andamento 1 anno: " + PERCENT_FORMATTER.format(metrics.yearChangePercent) + "%",
+    "Intervallo 52 settimane: " + RATE_FORMATTER.format(metrics.yearLow) + " – " + RATE_FORMATTER.format(metrics.yearHigh),
+    "Distanza dal massimo: " + PERCENT_FORMATTER.format(metrics.yearHighDistancePercent) + "%",
     "Dato di mercato: " + displayDate(snapshot.marketDate),
     "",
     "Valore indicativo; il cambio applicato può includere spread e commissioni.",
@@ -69,7 +69,7 @@ export function formatFxStatusMessage(
     );
   }
   lines.push(
-    "Riepiloghi: 09:00, 13:00, 17:00 e 21:00 (ora italiana, lun–ven)",
+    "Riepiloghi: circa 09:02, 13:02, 17:02 e 21:02 (ora italiana, lun–ven)",
     hasFailures
       ? "Monitor schedulato: " + health.consecutiveFailures + " errori consecutivi"
       : "Monitor schedulato: nessun errore registrato",

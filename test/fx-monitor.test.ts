@@ -15,7 +15,7 @@ import { TWELVE_DATA_EUR_JPY_RESPONSE } from "./fixtures/fx";
 
 const env: FxMonitorEnv = {
   STATE: workerEnv.STATE,
-  FX_API_URL: "https://api.twelvedata.com/time_series",
+  FX_API_URL: "https://api.twelvedata.com/quote",
   FX_PAGE_URL:
     "https://mercati.ilsole24ore.com/tassi-e-valute/valute/contro-euro/cambio/JPYVS.FX",
   TWELVE_DATA_API_KEY: "private-api-key",
@@ -55,7 +55,7 @@ function createHarness(): Harness {
       sendFailure = value;
     },
     deps: {
-      async loadTimeSeries(url, apiKey, timeoutMs) {
+      async loadQuote(url, apiKey, timeoutMs) {
         loads.push({ url, apiKey, timeoutMs });
         if (loadFailure) {
           throw loadFailure;
@@ -133,11 +133,9 @@ describe("runFxMonitor", () => {
   it("does not overwrite the last valid rate when Telegram delivery fails", async () => {
     const harness = createHarness();
     await runFxMonitor(env, harness.deps);
-    const changed = structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE) as {
-      values: Array<Record<string, string>>;
-    };
-    changed.values[0].close = "185.90000";
-    changed.values[0].high = "186.00000";
+    const changed = structuredClone(TWELVE_DATA_EUR_JPY_RESPONSE);
+    changed.close = "185.90000";
+    changed.high = "186.00000";
     harness.setPayload(changed);
     harness.setSendFailure(new Error("Telegram send failed with HTTP 500"));
 
